@@ -1,0 +1,148 @@
+/* Main container styling */
+.container {
+  max-width: 1200px;
+}
+
+/* Card styling */
+.card {
+  border-radius: 10px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.card:hover {
+  box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1);
+}
+
+.card-body {
+  padding: 2rem;
+}
+
+/* Heading styles */
+h1 {
+  color: #333;
+  font-weight: 600;
+  margin-bottom: 1.5rem;
+}
+
+h3 {
+  color: #444;
+  font-weight: 500;
+  margin-top: 1rem;
+}
+
+/* Form elements */
+.form-label {
+  font-weight: 500;
+}
+
+.form-control {
+  border-radius: 6px;
+  padding: 0.75rem;
+  border: 1px solid #ced4da;
+}
+
+.form-control:focus {
+  border-color: #80bdff;
+  box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+/* Button styling */
+.btn {
+  padding: 0.6rem 1.5rem;
+  border-radius: 6px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.btn-primary {
+  background-color: #0d6efd;
+  border-color: #0d6efd;
+}
+
+.btn-primary:hover {
+  background-color: #0b5ed7;
+  border-color: #0a58ca;
+}
+
+.btn-outline-primary {
+  color: #0d6efd;
+  border-color: #0d6efd;
+}
+
+.btn-outline-primary:hover {
+  background-color: #0d6efd;
+  color: white;
+}
+
+/* Progress bar styling */
+.progress {
+  height: 1.2rem;
+  border-radius: 6px;
+  margin-top: 1rem;
+  background-color: #e9ecef;
+}
+
+.progress-bar {
+  background-color: #0d6efd;
+  border-radius: 6px;
+}
+
+/* Script content area */
+.script-content {
+  max-height: 300px;
+  overflow-y: auto;
+  background-color: #f8f9fa;
+  padding: 15px;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  font-family: "Courier New", monospace;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: #333;
+  border: 1px solid #dee2e6;
+}
+
+/* Audio player styling */
+audio {
+  width: 100%;
+  border-radius: 30px;
+  margin: 1rem 0;
+}
+
+/* Alert styling */
+.alert {
+  border-radius: 6px;
+  padding: 1rem;
+}
+
+.alert-danger {
+  background-color: #f8d7da;
+  border-color: #f5c2c7;
+  color: #842029;
+}
+
+/* Spinner animation */
+.spinner-border {
+  margin-right: 0.5rem;
+}
+
+/* Status text */
+.text-center {
+  color: #6c757d;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .card-body {
+    padding: 1.5rem;
+  }
+
+  h1 {
+    font-size: 1.8rem;
+  }
+
+  .script-content {
+    max-height: 200px;
+  }
+}

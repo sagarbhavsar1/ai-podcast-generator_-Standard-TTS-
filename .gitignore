@@ -1,0 +1,38 @@
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+yarn-debug.log
+.pnpm-debug.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+.venv
+env/
+ENV/
+
+# Build files
+dist/
+build/
+*.tsbuildinfo
+
+# Media files
+uploads/*
+!uploads/.gitkeep
+public/podcasts/*
+!public/podcasts/.gitkeep
+models/*.gguf
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json

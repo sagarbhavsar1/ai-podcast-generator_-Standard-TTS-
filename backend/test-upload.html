@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PDF Upload Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 600px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .form-group {
+        margin-bottom: 15px;
+      }
+      label {
+        display: block;
+        margin-bottom: 5px;
+      }
+      button {
+        padding: 8px 16px;
+        background-color: #4caf50;
+        color: white;
+        border: none;
+        cursor: pointer;
+      }
+      #result {
+        margin-top: 20px;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        min-height: 100px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>PDF Upload Test</h1>
+    <div class="form-group">
+      <label for="pdfFile">Select a PDF file:</label>
+      <input type="file" id="pdfFile" accept=".pdf" />
+    </div>
+    <button onclick="uploadPDF()">Upload PDF</button>
+
+    <div id="result">
+      <p>Results will appear here...</p>
+    </div>
+
+    <script>
+      async function uploadPDF() {
+        const fileInput = document.getElementById("pdfFile");
+        const resultDiv = document.getElementById("result");
+
+        if (!fileInput.files.length) {
+          resultDiv.innerHTML = "<p>Please select a file first.</p>";
+          return;
+        }
+
+        const file = fileInput.files[0];
+        const formData = new FormData();
+        formData.append("pdf", file);
+
+        resultDiv.innerHTML = "<p>Uploading...</p>";
+
+        try {
+          const response = await fetch("http://localhost:3000/api/upload", {
+            method: "POST",
+            body: formData,
+          });
+
+          const data = await response.json();
+
+          if (response.ok) {
+            resultDiv.innerHTML = `
+            <h3>Upload Successful!</h3>
+            <p>Filename: ${data.filename}</p>
+            <p>Text Preview (first 300 chars):</p>
+            <pre>${data.text.substring(0, 300)}...</pre>
+          `;
+          } else {
+            resultDiv.innerHTML = `<p>Error: ${data.error}</p>`;
+          }
+        } catch (error) {
+          resultDiv.innerHTML = `<p>Error: ${error.message}</p>`;
+        }
+      }
+    </script>
+  </body>
+</html>
