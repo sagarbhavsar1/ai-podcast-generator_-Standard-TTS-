@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: ai-podcast-generator
+    env: node
+    buildCommand: cd backend && npm install
+    startCommand: cd backend && npm start
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: PORT
+        value: 3000

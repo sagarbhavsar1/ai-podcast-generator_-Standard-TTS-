@@ -3,8 +3,10 @@ const multer = require("multer");
 const cors = require("cors");
 const fs = require("fs-extra");
 const path = require("path");
-const { spawn } = require("child_process");
+const axios = require("axios");
+const rateLimit = require("express-rate-limit");
 const { extractTextFromPdf } = require("./ocr-service");
+require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -13,6 +15,13 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Rate limiting
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 25, // limit each IP to 25 requests per minute (below Groq's 30/min limit)
+  message: "Too many requests, please try again later.",
+});
 
 // Configure storage for uploaded files
 const storage = multer.diskStorage({
@@ -62,49 +71,46 @@ app.post("/api/upload", upload.single("pdf"), async (req, res) => {
 });
 
 // Podcast generation endpoint
-app.post("/api/generate", async (req, res) => {
+app.post("/api/generate", apiLimiter, async (req, res) => {
   try {
     const { text, filename } = req.body;
 
-    // Generate script using LLM
-    const scriptProcess = spawn("python", ["llm_service.py"]);
+    // Call Groq API for script generation
+    const llmResponse = await axios.post(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        model: "llama-3.1-8b-instant",
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are an AI that creates natural podcast conversations between two hosts (Host A and Host B) based on provided content.",
+          },
+          {
+            role: "user",
+            content: `Create a podcast conversation about the following content. Format as "Host A: [speech]" and "Host B: [speech]" with natural back-and-forth, including an introduction, main discussion points, and conclusion.\n\nContent: ${text.substring(
+              0,
+              3000
+            )}`,
+          },
+        ],
+        temperature: 0.7,
+        max_tokens: 2000,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
 
-    let scriptOutput = "";
+    const scriptData = {
+      script: llmResponse.data.choices[0].message.content,
+    };
 
-    scriptProcess.stdout.on("data", (data) => {
-      scriptOutput += data.toString();
-    });
-
-    scriptProcess.on("error", (error) => {
-      console.error("Error spawning script process:", error);
-      return res
-        .status(500)
-        .json({ error: "Failed to generate podcast script" });
-    });
-
-    scriptProcess.stdin.write(text);
-    scriptProcess.stdin.end();
-
-    await new Promise((resolve, reject) => {
-      scriptProcess.on("close", (code) => {
-        if (code === 0) resolve();
-        else reject(new Error(`LLM process exited with code ${code}`));
-      });
-    });
-
-    let scriptData;
-    try {
-      // Trim any whitespace and ensure we're parsing valid JSON
-      const trimmedOutput = scriptOutput.trim();
-      console.log("Raw script output:", trimmedOutput);
-      scriptData = JSON.parse(trimmedOutput);
-    } catch (e) {
-      console.error("Failed to parse script output:", e.message);
-      console.error("Raw output:", scriptOutput);
-      return res.status(500).json({ error: "Invalid script output" });
-    }
-
-    // Generate audio using TTS
+    // Generate audio using voice_service.py (keeping this for now)
+    const { spawn } = require("child_process");
     const audioProcess = spawn("python", ["voice_service.py"]);
 
     let audioOutput = "";
