@@ -2,61 +2,102 @@ import sys
 import json
 import os
 import time
-import wave
-import struct
-import random
+import requests
+import numpy as np
+import soundfile as sf
+import io
 
 def generate_podcast_audio(script):
     """
-    Generate a valid WAV file for podcast audio.
-    This creates a dynamic audio file with varying "silence" to simulate speech patterns.
-    In production, you would replace this with actual TTS.
+    Generate podcast audio using Kokoro TTS API.
+    Creates a WAV file with natural speech for the podcast conversation.
     """
     output_filename = f"../public/podcasts/podcast_{int(time.time())}.wav"
 
-    # Create a more interesting WAV file (varying amplitude to simulate speech)
-    # Parameters
-    sample_rate = 44100  # samples per second
-    duration = 30  # seconds (longer for a more realistic podcast length)
+    # Ensure temp and output directories exist
+    os.makedirs("../temp", exist_ok=True)
+    os.makedirs("../public/podcasts", exist_ok=True)
 
-    # Create a new WAV file
-    with wave.open(output_filename, 'w') as wav_file:
-        # Set parameters
-        wav_file.setnchannels(1)  # mono
-        wav_file.setsampwidth(2)  # 2 bytes per sample (16 bits)
-        wav_file.setframerate(sample_rate)
+    # Parse script into speaker turns
+    lines = script.strip().split('\n')
+    audio_segments = []
+    sample_rate = 24000  # Kokoro's output sample rate
 
-        # Generate audio data with varying amplitude
-        # This creates a "pattern" that sounds more like speech than pure silence
-        lines = script.split('\n')
-        for line in lines:
-            if not line.strip():
-                continue
+    # Process each line
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue
 
-            # Determine if it's Host A or Host B
-            amplitude = 2000 if "Host A:" in line else 3000
+        parts = line.split(':', 1)
+        if len(parts) != 2:
+            continue
 
-            # Duration based on line length
-            line_duration = 0.1 * len(line)  # rough approximation
+        speaker, text = parts[0].strip(), parts[1].strip()
 
-            # Generate "speech-like" pattern
-            for i in range(int(line_duration * sample_rate)):
-                # Create a pattern that vaguely resembles speech cadence
-                if i % 1000 < 500:
-                    value = int(amplitude * 0.8 * random.random())
-                else:
-                    value = int(amplitude * 0.2 * random.random())
-                wav_file.writeframes(struct.pack('h', value))
+        # Select voice based on speaker
+        voice = "am_adam" if "Host A" in speaker else "bf_emma"
 
-            # Add a short pause between lines
-            for i in range(int(0.5 * sample_rate)):
-                wav_file.writeframes(struct.pack('h', 0))
+
+        # Generate speech using Kokoro API
+        temp_file = f"../temp/line_{i}.wav"
+
+        try:
+            # Call the Kokoro API with the correct endpoint
+            response = requests.post(
+                "http://localhost:8343/v1/audio/speech",
+                json={
+                    "model": "kokoro",
+                    "input": text,
+                    "voice": voice
+                },
+                headers={"accept": "application/json", "Content-Type": "application/json"}
+            )
+
+            if response.status_code == 200:
+                # Save the binary audio data directly to file
+                with open(temp_file, "wb") as f:
+                    f.write(response.content)
+
+                # Keep track of the file
+                audio_segments.append(temp_file)
+            else:
+                print(f"Error generating audio for line {i}: {response.text}")
+        except Exception as e:
+            print(f"Exception generating audio for line {i}: {str(e)}")
+
+    # Combine all audio segments
+    if audio_segments:
+        combined_audio = []
+        for file in audio_segments:
+            try:
+                audio, sr = sf.read(file)
+                combined_audio.append(audio)
+            except Exception as e:
+                print(f"Error processing audio file {file}: {str(e)}")
+
+        if combined_audio:
+            # Concatenate all audio
+            final_audio = np.concatenate(combined_audio)
+
+            # Save to output file
+            sf.write(output_filename, final_audio, sample_rate)
+        else:
+            # Create an empty file if no audio was processed
+            sf.write(output_filename, np.zeros(1000), sample_rate)
+
+        # Clean up temp files
+        for file in audio_segments:
+            if os.path.exists(file):
+                os.remove(file)
+    else:
+        # Create an empty file if no audio was generated
+        sf.write(output_filename, np.zeros(1000), sample_rate)
 
     return output_filename
 
 if __name__ == "__main__":
     # Read input from stdin
     script_data = json.loads(sys.stdin.read())
-    output_file = generate_podcast_audio(script_data["script"])
+    output_file = generate_podcast_audio(script_data.get("script", ""))
     # Only output the JSON, no status messages
     print(json.dumps({"audio_file": output_file}))
