@@ -11,12 +11,8 @@ require("dotenv").config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
+// Middleware - SINGLE DECLARATIONS ONLY
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Increase JSON body size limit
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
@@ -60,8 +56,20 @@ app.post("/api/upload", upload.single("pdf"), async (req, res) => {
       return res.status(400).json({ error: "No PDF file uploaded" });
     }
 
+    console.log(
+      `Processing PDF: ${req.file.originalname} (${req.file.size} bytes)`
+    );
+
     // Extract text from PDF using OCR
     const text = await extractTextFromPdf(req.file.path);
+
+    // Log the extracted text (first 500 chars)
+    console.log("Extracted text (preview):", text.substring(0, 500));
+    console.log("Total text length:", text.length);
+    console.log(
+      "Extraction method:",
+      text.length > 100 ? "Direct PDF extraction" : "OCR fallback"
+    );
 
     // Return the extracted text
     res.json({
@@ -77,29 +85,56 @@ app.post("/api/upload", upload.single("pdf"), async (req, res) => {
 // Podcast generation endpoint
 app.post("/api/generate", apiLimiter, async (req, res) => {
   try {
-    const { text, filename } = req.body;
+    const { text, filename, voiceOptions, podcastLength = "medium" } = req.body;
 
-    // Call Groq API for script generation
+    console.log(`Generating podcast for file: ${filename}`);
+    console.log(`Text length: ${text.length} characters`);
+    console.log(`Requested podcast length: ${podcastLength}`);
+
+    // Determine max tokens based on requested length
+    const lengthTokens = {
+      short: 3000,
+      medium: 6000,
+      long: 9000,
+    };
+
+    const maxTokens = lengthTokens[podcastLength] || 6000;
+
+    // Call Groq API for script generation with enhanced prompt
+    console.log("Calling Groq API for script generation...");
     const llmResponse = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
-        model: "llama-3.3-70b-versatile",
+        model: "llama-3.3-70b-versatile", // Use a more capable model
         messages: [
           {
             role: "system",
-            content:
-              "You are an AI that creates natural podcast conversations between two hosts (Host A and Host B) based on provided content.",
+            content: `You are an expert podcast scriptwriter who creates incredibly natural, conversational scripts between two hosts (Host A and Host B).
+
+Your scripts should:
+- Include natural speech patterns with filler words (um, uh, hmm, you know, like)
+- Feature realistic interruptions, overlaps, and back-and-forth exchanges
+- Incorporate casual asides, personal anecdotes, and humor
+- Cover ALL details from the source material thoroughly and in extreme detail
+- Include moments where hosts ask questions, express surprise, or disagree slightly
+- Sound exactly like two friends having an informed conversation, not a rehearsed presentation
+- Have distinct personality differences between Host A (more analytical) and Host B (more enthusiastic)
+- Include introduction, detailed discussion of all points, and conclusion
+- Be approximately 4,000-6,000 words to create a 20-30 minute podcast
+
+The script should sound like a real podcast conversation, not like an AI-generated script. Make it authentic, engaging, and natural.`,
           },
           {
             role: "user",
-            content: `Create a podcast conversation about the following content. Format as "Host A: [speech]" and "Host B: [speech]" with natural back-and-forth, including an introduction, main discussion points, and conclusion.\n\nContent: ${text.substring(
-              0,
-              3000
-            )}`,
+            content: `Create a podcast conversation discussing this content in extreme detail. Format as "Host A: [speech]" and "Host B: [speech]". Make it sound genuinely conversational with filler words, interruptions, and natural speech patterns.
+
+The hosts should discuss EVERY detail in the content, leaving nothing out. Make sure the conversation flows naturally while covering all the information.
+
+Content: ${text}`,
           },
         ],
-        temperature: 0.7,
-        max_tokens: 2000,
+        temperature: 0.8, // Slightly higher temperature for more creative responses
+        max_tokens: maxTokens,
       },
       {
         headers: {
@@ -109,11 +144,19 @@ app.post("/api/generate", apiLimiter, async (req, res) => {
       }
     );
 
+    console.log("Script generated successfully");
+
+    // Apply additional enhancements to make the script more natural
+    const enhancedScript = enhanceScript(
+      llmResponse.data.choices[0].message.content
+    );
+
     const scriptData = {
-      script: llmResponse.data.choices[0].message.content,
+      script: enhancedScript,
     };
 
-    // Generate audio using voice_service.py (keeping this for now)
+    // Generate audio using voice_service.py
+    console.log("Generating audio with Kokoro TTS...");
     const { spawn } = require("child_process");
     const audioProcess = spawn("python", ["voice_service.py"]);
 
@@ -123,6 +166,10 @@ app.post("/api/generate", apiLimiter, async (req, res) => {
       audioOutput += data.toString();
     });
 
+    audioProcess.stderr.on("data", (data) => {
+      console.error(`TTS Error: ${data.toString()}`);
+    });
+
     audioProcess.on("error", (error) => {
       console.error("Error spawning audio process:", error);
       return res
@@ -130,7 +177,13 @@ app.post("/api/generate", apiLimiter, async (req, res) => {
         .json({ error: "Failed to generate podcast audio" });
     });
 
-    audioProcess.stdin.write(JSON.stringify(scriptData));
+    // Pass voice options if provided
+    const inputData = {
+      script: scriptData.script,
+      voices: voiceOptions || { hostA: "am_adam", hostB: "bf_emma" },
+    };
+
+    audioProcess.stdin.write(JSON.stringify(inputData));
     audioProcess.stdin.end();
 
     await new Promise((resolve, reject) => {
@@ -142,14 +195,29 @@ app.post("/api/generate", apiLimiter, async (req, res) => {
 
     let audioData;
     try {
-      const trimmedAudioOutput = audioOutput.trim();
-      console.log("Raw audio output:", trimmedAudioOutput);
-      audioData = JSON.parse(trimmedAudioOutput);
+      // Look for the last line that contains valid JSON
+      const lines = audioOutput.trim().split("\n");
+      let jsonLine = "";
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (lines[i].trim().startsWith("{")) {
+          jsonLine = lines[i];
+          break;
+        }
+      }
+
+      if (jsonLine) {
+        audioData = JSON.parse(jsonLine);
+        console.log("Parsed audio data:", audioData);
+      } else {
+        throw new Error("No valid JSON found in output");
+      }
     } catch (e) {
       console.error("Failed to parse audio output:", e.message);
       console.error("Raw audio output:", audioOutput);
       return res.status(500).json({ error: "Invalid audio output" });
     }
+
+    console.log(`Podcast generated successfully: ${audioData.audio_file}`);
 
     // Return podcast data
     res.json({
