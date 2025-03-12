@@ -7,6 +7,7 @@ import numpy as np
 import soundfile as sf
 import io
 import random
+import re
 
 def generate_podcast_audio(script_data):
     """
@@ -18,8 +19,8 @@ def generate_podcast_audio(script_data):
     # Get the script and voice preferences
     script = script_data.get("script", "")
     voices = script_data.get("voices", {})
-    host_a_voice = voices.get("hostA", "am_adam")
-    host_b_voice = voices.get("hostB", "bf_emma")
+    host_a_voice = voices.get("hostA", "af_bella")  # Updated to use bella
+    host_b_voice = voices.get("hostB", "am_liam")   # Updated to use liam
 
     # Ensure temp and output directories exist
     os.makedirs("../temp", exist_ok=True)
@@ -30,7 +31,22 @@ def generate_podcast_audio(script_data):
     audio_segments = []
     sample_rate = 24000  # Kokoro's output sample rate
 
-    # Process each line
+    # Voice settings for consistency
+    host_a_settings = {
+        "voice": host_a_voice,
+        "speed": 1.0,
+        "pitch": 0.0,  # Default pitch
+        "volume": 1.0   # Default volume
+    }
+
+    host_b_settings = {
+        "voice": host_b_voice,
+        "speed": 1.0,
+        "pitch": 0.0,  # Default pitch
+        "volume": 1.0   # Default volume
+    }
+
+    # Process each line with retry logic
     for i, line in enumerate(lines):
         if not line.strip():
             continue
@@ -41,64 +57,109 @@ def generate_podcast_audio(script_data):
 
         speaker, text = parts[0].strip(), parts[1].strip()
 
-        # Select voice based on speaker
-        voice = host_a_voice if "Host A" in speaker else host_b_voice
+        # Select voice settings based on speaker
+        if "Host A" in speaker:
+            voice_settings = host_a_settings.copy()
+            # Slight variations for naturalness while maintaining consistency
+            voice_settings["speed"] = random.uniform(0.97, 1.03)
+        else:
+            voice_settings = host_b_settings.copy()
+            # Slight variations for naturalness while maintaining consistency
+            voice_settings["speed"] = random.uniform(0.97, 1.03)
 
-        # Generate speech using Kokoro API
+        # Process emotional cues and pauses
+        text, emotion_adjustments = process_emotional_cues(text)
+
+        # Apply emotion-based adjustments to voice settings
+        for param, adjustment in emotion_adjustments.items():
+            if param in voice_settings:
+                voice_settings[param] += adjustment
+
+        # Generate speech using Kokoro API with retry logic
         temp_file = f"../temp/line_{i}.wav"
 
-        try:
-            # Enhance text with natural variations (without SSML tags)
-            enhanced_text = add_speech_enhancements(text)
+        # Clean up text - remove any remaining bracketed content
+        clean_text = re.sub(r'\[.*?\]', '', text).strip()
 
-            # Call the Kokoro API with the correct endpoint
-            response = requests.post(
-                "http://localhost:8343/v1/audio/speech",
-                json={
-                    "model": "kokoro",
-                    "input": enhanced_text,
-                    "voice": voice,
-                    "speed": random.uniform(0.95, 1.05)  # Slight random variation in speed
-                },
-                headers={"accept": "application/json", "Content-Type": "application/json"},
-                timeout=30  # Add timeout to prevent hanging
-            )
+        # Replace pause markers with actual pauses (periods)
+        clean_text = clean_text.replace("[pause]", ".")
 
-            if response.status_code == 200:
-                # Save the binary audio data directly to file
-                with open(temp_file, "wb") as f:
-                    f.write(response.content)
+        # Try up to 3 times to generate this line
+        max_retries = 3
+        for retry in range(max_retries):
+            try:
+                # Call the Kokoro API with the correct endpoint and voice settings
+                response = requests.post(
+                    "http://localhost:8343/v1/audio/speech",
+                    json={
+                        "model": "kokoro",
+                        "input": clean_text,
+                        "voice": voice_settings["voice"],
+                        "speed": voice_settings["speed"]
+                        # Note: Kokoro may not support pitch and volume directly
+                    },
+                    headers={"accept": "application/json", "Content-Type": "application/json"},
+                    timeout=15  # Shorter timeout to fail faster
+                )
 
-                # Keep track of the file
-                audio_segments.append(temp_file)
+                if response.status_code == 200:
+                    # Save the binary audio data directly to file
+                    with open(temp_file, "wb") as f:
+                        f.write(response.content)
 
-                # Add a small random pause after some lines (not after every line)
-                if random.random() > 0.7:
-                    pause_file = f"../temp/pause_{i}.wav"
-                    # Create a pause of random length between 0.3 and 0.8 seconds
-                    pause_length = random.uniform(0.3, 0.8)
-                    pause_samples = int(sample_rate * pause_length)
-                    pause_audio = np.zeros(pause_samples)
-                    sf.write(pause_file, pause_audio, sample_rate)
-                    audio_segments.append(pause_file)
-            else:
-                print(f"Error generating audio for line {i}: {response.text}", file=sys.stderr)
-        except Exception as e:
-            print(f"Exception generating audio for line {i}: {str(e)}", file=sys.stderr)
+                    # Keep track of the file
+                    audio_segments.append(temp_file)
+
+                    # Add strategic pauses based on content
+                    if "[pause]" in text or re.search(r'[.!?]', text):
+                        pause_file = f"../temp/pause_{i}.wav"
+                        # Create a pause of appropriate length
+                        pause_length = 0.4  # Default pause
+
+                        # Longer pauses for sentence endings
+                        if "." in text:
+                            pause_length = 0.6
+                        elif "!" in text or "?" in text:
+                            pause_length = 0.7
+
+                        pause_samples = int(sample_rate * pause_length)
+                        pause_audio = np.zeros(pause_samples)
+                        sf.write(pause_file, pause_audio, sample_rate)
+                        audio_segments.append(pause_file)
+
+                    # Success - break out of retry loop
+                    break
+                else:
+                    print(f"Error generating audio for line {i} (attempt {retry+1}/{max_retries}): {response.text}", file=sys.stderr)
+                    if retry < max_retries - 1:
+                        # Wait before retrying
+                        time.sleep(2)
+            except Exception as e:
+                print(f"Exception generating audio for line {i} (attempt {retry+1}/{max_retries}): {str(e)}", file=sys.stderr)
+                if retry < max_retries - 1:
+                    # Wait before retrying
+                    time.sleep(2)
+
+        # Add a small delay between processing lines to avoid overwhelming the TTS service
+        time.sleep(0.5)
 
     # Combine all audio segments
     if audio_segments:
         combined_audio = []
         for file in audio_segments:
             try:
-                audio, sr = sf.read(file)
-                combined_audio.append(audio)
+                if os.path.exists(file) and os.path.getsize(file) > 0:
+                    audio, sr = sf.read(file)
+                    combined_audio.append(audio)
             except Exception as e:
                 print(f"Error processing audio file {file}: {str(e)}", file=sys.stderr)
 
         if combined_audio:
             # Concatenate all audio
             final_audio = np.concatenate(combined_audio)
+
+            # Apply audio enhancements
+            final_audio = enhance_audio(final_audio)
 
             # Save to output file
             sf.write(output_filename, final_audio, sample_rate)
@@ -116,32 +177,45 @@ def generate_podcast_audio(script_data):
 
     return output_filename
 
-def add_speech_enhancements(text):
-    """Add enhancements to make speech sound more natural without using SSML tags"""
-    # Replace certain patterns with more natural-sounding alternatives
+def process_emotional_cues(text):
+    """Process emotional cues in text and return adjustments for TTS parameters"""
+    # Default adjustments (no change)
+    adjustments = {
+        "speed": 0.0,
+        "pitch": 0.0,
+        "volume": 0.0
+    }
 
-    # Add emphasis to important words (randomly)
-    words = text.split()
-    for i in range(len(words)):
-        if len(words[i]) > 4 and random.random() > 0.9:
-            words[i] = words[i].upper()  # Some TTS systems interpret uppercase as emphasis
+    # Remove [pause] markers for processing (we'll handle them separately)
+    text_without_pauses = text.replace("[pause]", "")
 
-    enhanced_text = ' '.join(words)
+    # Look for emotional cues in brackets and adjust parameters
+    excited_pattern = r'\[excited\]|\[enthusiastic\]|\[energetic\]'
+    if re.search(excited_pattern, text_without_pauses, re.IGNORECASE):
+        adjustments["speed"] = 0.05  # Slightly faster
+        adjustments["pitch"] = 0.1   # Slightly higher pitch
+        adjustments["volume"] = 0.1  # Slightly louder
 
-    # Add natural pauses with punctuation instead of SSML tags
-    enhanced_text = enhanced_text.replace('. ', '. ... ')
-    enhanced_text = enhanced_text.replace('? ', '? ... ')
-    enhanced_text = enhanced_text.replace('! ', '! ... ')
-    enhanced_text = enhanced_text.replace(', ', ', .. ')
+    sad_pattern = r'\[sad\]|\[disappointed\]|\[somber\]'
+    if re.search(sad_pattern, text_without_pauses, re.IGNORECASE):
+        adjustments["speed"] = -0.1  # Slower
+        adjustments["pitch"] = -0.1  # Lower pitch
 
-    # Add occasional hesitations
-    if random.random() > 0.8:
-        hesitations = [" um ", " uh ", " hmm ", " you know ", " like "]
-        position = random.randint(0, len(words) - 1)
-        words.insert(position, random.choice(hesitations))
-        enhanced_text = ' '.join(words)
+    thoughtful_pattern = r'\[thoughtful\]|\[contemplative\]|\[reflective\]'
+    if re.search(thoughtful_pattern, text_without_pauses, re.IGNORECASE):
+        adjustments["speed"] = -0.05  # Slightly slower
 
-    return enhanced_text
+    surprised_pattern = r'\[surprised\]|\[shocked\]|\[amazed\]'
+    if re.search(surprised_pattern, text_without_pauses, re.IGNORECASE):
+        adjustments["speed"] = 0.1   # Faster
+        adjustments["pitch"] = 0.15  # Higher pitch
+
+    questioning_pattern = r'\[questioning\]|\[curious\]|\[inquisitive\]'
+    if re.search(questioning_pattern, text_without_pauses, re.IGNORECASE):
+        adjustments["pitch"] = 0.05  # Slightly higher pitch at the end
+
+    # Return the text with adjustments
+    return text, adjustments
 
 def enhance_audio(audio_data):
     """Apply audio enhancements to make the podcast sound more natural"""
@@ -149,7 +223,7 @@ def enhance_audio(audio_data):
     # consider using libraries like librosa or scipy for filtering
 
     # Add a tiny bit of noise to make it sound less digital
-    noise_level = 0.001
+    noise_level = 0.0005  # Reduced from previous version
     noise = np.random.normal(0, noise_level, len(audio_data))
     enhanced_audio = audio_data + noise
 
@@ -159,6 +233,44 @@ def enhance_audio(audio_data):
         enhanced_audio = enhanced_audio * (0.9 / max_amplitude)
 
     return enhanced_audio
+
+def preprocess_text_for_tts(text):
+    """Prepare text for TTS to avoid spelling out and improve pronunciation"""
+    # Replace abbreviations with full words to prevent spelling out
+    replacements = {
+        "e.g.": "for example",
+        "i.e.": "that is",
+        "etc.": "etcetera",
+        "vs.": "versus",
+        "Fig.": "Figure",
+        "fig.": "figure",
+        "Dr.": "Doctor",
+        "Mr.": "Mister",
+        "Mrs.": "Misses",
+        "Ph.D.": "PhD",
+        "M.D.": "MD",
+        "B.A.": "BA",
+        "M.A.": "MA",
+        "B.S.": "BS",
+        "M.S.": "MS",
+        "U.S.": "US",
+        "U.K.": "UK",
+        "E.U.": "EU"
+    }
+
+    for abbr, full in replacements.items():
+        text = text.replace(abbr, full)
+
+    # Handle numbers and percentages for better pronunciation
+    text = text.replace("%", " percent")
+
+    # Remove any remaining problematic characters
+    text = text.replace("*", "")
+    text = text.replace("#", "number ")
+    text = text.replace("&", "and")
+    text = text.replace("@", "at")
+
+    return text
 
 if __name__ == "__main__":
     # Read input from stdin
