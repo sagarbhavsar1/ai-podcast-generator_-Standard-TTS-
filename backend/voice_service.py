@@ -20,7 +20,7 @@ def generate_podcast_audio(script_data):
     script = script_data.get("script", "")
     voices = script_data.get("voices", {})
     host_a_voice = voices.get("hostA", "af_bella")  # Updated to use bella
-    host_b_voice = voices.get("hostB", "am_liam")   # Updated to use liam
+    host_b_voice = voices.get("hostB", "am_Echo")   # Updated to use Echo
 
     # Ensure temp and output directories exist
     os.makedirs("../temp", exist_ok=True)
