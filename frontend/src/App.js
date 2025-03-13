@@ -62,7 +62,7 @@ function App() {
       setProcessingProgress(100);
     } catch (err) {
       console.error("Error:", err);
-      setError("Failed to generate podcast. Please try again.");
+      setError("Failed to generate podcast. Please try again in some time.");
       setLoading(false);
       setUploadStatus("");
       setProcessingProgress(0);
@@ -75,7 +75,7 @@ function App() {
         <div className="col-md-8">
           <div className="card shadow-sm">
             <div className="card-body">
-              <h1 className="text-center mb-4">AI Podcast Generator</h1>
+              <h1 className="text-center mb-4">PDFcast🎙️</h1>
 
               <form onSubmit={handleSubmit}>
                 <div className="mb-3">

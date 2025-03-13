@@ -199,7 +199,7 @@ PDF Content (Part ${chunkNumber}/${totalChunks}): ${chunk}`;
   // Implement retry logic with exponential backoff
   const maxRetries = 5;
   let retryCount = 0;
-  let retryDelay = 3000; // Start with 3 second delay
+  let retryDelay = 3000; // Start with 3 second delay, can also do 2500 i.e 2.5 seconds
 
   while (retryCount <= maxRetries) {
     try {
@@ -411,7 +411,7 @@ app.post("/api/generate", apiLimiter, async (req, res) => {
     // Pass voice options if provided
     const inputData = {
       script: scriptData.script,
-      voices: voiceOptions || { hostA: "af_bella", hostB: "am_liam" }, // Updated to bella and liam
+      voices: voiceOptions || { hostA: "af_bella", hostB: "am_Echo" }, // Updated to bella and Echo
     };
 
     audioProcess.stdin.write(JSON.stringify(inputData));
