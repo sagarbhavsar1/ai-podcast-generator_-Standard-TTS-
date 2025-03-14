@@ -5,7 +5,7 @@ const fs = require("fs-extra");
 const path = require("path");
 const axios = require("axios");
 const rateLimit = require("express-rate-limit");
-const { extractTextFromPdf } = require("./ocr-service");
+const { extractTextFromPdf } = require("./tessaractOCR");
 require("dotenv").config();
 
 const app = express();
@@ -411,7 +411,7 @@ app.post("/api/generate", apiLimiter, async (req, res) => {
     // Pass voice options if provided
     const inputData = {
       script: scriptData.script,
-      voices: voiceOptions || { hostA: "af_bella", hostB: "am_Echo" }, // Updated to bella and Echo
+      voices: voiceOptions || { hostA: "af_bella", hostB: "am_echo" }, // Updated to bella and echo
     };
 
     audioProcess.stdin.write(JSON.stringify(inputData));

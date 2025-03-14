@@ -20,7 +20,7 @@ def generate_podcast_audio(script_data):
     script = script_data.get("script", "")
     voices = script_data.get("voices", {})
     host_a_voice = voices.get("hostA", "af_bella")  # Updated to use bella
-    host_b_voice = voices.get("hostB", "am_Echo")   # Updated to use Echo
+    host_b_voice = voices.get("hostB", "am_echo")   # Updated to use echo
 
     # Ensure temp and output directories exist
     os.makedirs("../temp", exist_ok=True)
@@ -65,7 +65,7 @@ def generate_podcast_audio(script_data):
         else:
             voice_settings = host_b_settings.copy()
             # Slight variations for naturalness while maintaining consistency
-            voice_settings["speed"] = random.uniform(0.97, 1.03)
+            voice_settings["speed"] = random.uniform(1, 1.03)
 
         # Process emotional cues and pauses
         text, emotion_adjustments = process_emotional_cues(text)
