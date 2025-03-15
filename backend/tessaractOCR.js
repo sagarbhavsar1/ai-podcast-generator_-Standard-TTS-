@@ -43,7 +43,7 @@ async function convertPdfToImages(pdfPath) {
 
     return imageFiles;
   } catch (error) {
-    console.error("Error converting PDF to images:", error);
+    console.error("Error converting PDF to images due to OCR issue:", error);
     throw error;
   }
 }
@@ -72,7 +72,8 @@ async function extractTextFromPdf(pdfPath) {
     try {
       const pdfData = await pdfParse(dataBuffer);
       if (pdfData.text && pdfData.text.trim().length > 100) {
-        // If we got reasonable text from pdf-parse, use it
+        // If we got reasonable text from pdf-parse, use it, we are using this as the first option but if we dont
+        //get enough text then we will use OCR.
         return pdfData.text;
       }
     } catch (e) {

@@ -19,7 +19,7 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 // Rate limiting
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 25, // limit each IP to 25 requests per minute (below Groq's 30/min limit)
+  max: 30, // limit each IP to 30 requests per minute (Groq's limit)
   message: "Too many requests, please try again later.",
 });
 
@@ -85,7 +85,7 @@ function optimizeScriptForTTS(script) {
   return optimizedLines.join("\n");
 }
 
-// Function to split text into manageable chunks
+// Function to split text into manageable chunks (used as fallback)
 function splitTextIntoChunks(text, chunkSize = 8000) {
   // If text is smaller than chunk size, return it as is
   if (text.length <= chunkSize) {
@@ -129,7 +129,7 @@ function splitTextIntoChunks(text, chunkSize = 8000) {
   return chunks;
 }
 
-// Function to process a single chunk with Groq API with retry logic
+// Function to process a single chunk with Groq API with retry logic (used as fallback)
 async function processChunkWithGroq(
   chunk,
   isFirstChunk,
@@ -199,7 +199,7 @@ PDF Content (Part ${chunkNumber}/${totalChunks}): ${chunk}`;
   // Implement retry logic with exponential backoff
   const maxRetries = 5;
   let retryCount = 0;
-  let retryDelay = 3000; // Start with 3 second delay, can also do 2500 i.e 2.5 seconds
+  let retryDelay = 3000; // Start with 3 second delay
 
   while (retryCount <= maxRetries) {
     try {
@@ -213,7 +213,7 @@ PDF Content (Part ${chunkNumber}/${totalChunks}): ${chunk}`;
       const response = await axios.post(
         "https://api.groq.com/openai/v1/chat/completions",
         {
-          model: "llama-3.3-70b-versatile",
+          model: "deepseek-r1-distill-llama-70b",
           messages: [
             {
               role: "system",
@@ -237,7 +237,12 @@ PDF Content (Part ${chunkNumber}/${totalChunks}): ${chunk}`;
       );
 
       console.log(`Successfully processed chunk ${chunkNumber}/${totalChunks}`);
-      return response.data.choices[0].message.content;
+
+      // Remove <think> tags if present in the response
+      let content = response.data.choices[0].message.content;
+      content = content.replace(/<think>[\s\S]*?<\/think>/g, "");
+
+      return content;
     } catch (error) {
       retryCount++;
 
@@ -341,39 +346,124 @@ app.post("/api/generate", apiLimiter, async (req, res) => {
       targetLength = podcastLength;
     }
 
-    // Split text into manageable chunks to avoid payload size limits
-    const CHUNK_SIZE = 8000; // Adjust this value based on Groq's limits
-    const chunks = splitTextIntoChunks(text, CHUNK_SIZE);
+    const lengthTokens = {
+      short: 3000,
+      medium: 6000,
+      long: 9000,
+    };
 
-    console.log(`Split content into ${chunks.length} chunks for processing`);
+    const maxTokens = lengthTokens[targetLength] || 6000;
 
-    // Process each chunk sequentially
     let completeScript = "";
 
-    for (let i = 0; i < chunks.length; i++) {
-      console.log(`Processing chunk ${i + 1} of ${chunks.length}...`);
+    // Try to process the entire PDF in one go
+    try {
+      console.log("Attempting to process entire PDF in one API call...");
 
-      const isFirstChunk = i === 0;
-      const isLastChunk = i === chunks.length - 1;
+      // System prompt for podcast creation
+      const systemPrompt = `You are the world's best podcast script creator. You transform written content into authentic, engaging conversations between two hosts (Host A and Host B) that sound EXACTLY like real podcasts.
 
-      // Process this chunk with retry logic
-      const chunkScript = await processChunkWithGroq(
-        chunks[i],
-        isFirstChunk,
-        isLastChunk,
-        targetLength,
-        i + 1,
-        chunks.length
+Your podcast scripts should:
+
+1. Be genuinely conversational - not scripted-sounding narration taking turns
+2. Include natural speech patterns with appropriate filler words ("um", "like", "you know") but use them sparingly
+3. Feature hosts interrupting each other, finishing each other's sentences, and building on ideas
+4. Include emotional reactions with clear tone indicators ("Wow!" [excited], "That's fascinating!" [curious], "Wait, really?" [surprised])
+5. Have hosts ask each other questions to drive the conversation forward
+6. Include brief personal anecdotes or examples that relate to the content
+7. Have distinct personalities: Host A is more analytical and detail-oriented, Host B is more enthusiastic and asks clarifying questions
+8. Discuss EVERY detail from the source material, even small points, exploring them thoroughly
+9. Include tangents and side discussions that naturally emerge from the content
+10. Feature moments of humor, surprise, or disagreement between hosts
+11. Have a clear introduction, detailed middle discussion, and satisfying conclusion
+12. Use concise, clear sentences that are easy to speak aloud - avoid complex, run-on sentences`;
+
+      // User prompt for podcast creation
+      const userPrompt = `Create a podcast script from the following PDF content. The script should be a natural conversation between Host A and Host B that thoroughly discusses EVERY detail and nuance in the content, including small points that might seem minor.
+
+The hosts should have a genuine back-and-forth conversation where they react to each other, ask questions, express opinions, and occasionally share brief personal perspectives.
+
+Use concise sentences that are easy to speak naturally. Break up long, complex sentences into shorter ones.
+
+PDF Content: ${text}`;
+
+      // Call Groq API with DeepSeek R1 Distill Llama 70B model
+      const response = await axios.post(
+        "https://api.groq.com/openai/v1/chat/completions",
+        {
+          model: "deepseek-r1-distill-llama-70b",
+          messages: [
+            {
+              role: "system",
+              content: systemPrompt,
+            },
+            {
+              role: "user",
+              content: userPrompt,
+            },
+          ],
+          temperature: 0.7,
+          max_tokens: maxTokens,
+          top_p: 0.9,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+        }
       );
 
-      // Add to complete script
-      completeScript += chunkScript + "\n\n";
+      console.log("Successfully processed entire PDF in one API call");
 
-      // Add a standard delay between chunks to avoid rate limits
-      // Even if we didn't hit a rate limit, this helps prevent them
-      if (!isLastChunk) {
-        console.log("Adding standard delay between chunks (3 seconds)...");
-        await new Promise((resolve) => setTimeout(resolve, 3000));
+      // Remove <think> tags if present in the response
+      completeScript = response.data.choices[0].message.content;
+      completeScript = completeScript.replace(/<think>[\s\S]*?<\/think>/g, "");
+    } catch (error) {
+      console.error("Error processing entire PDF:", error.message);
+
+      // Fallback to chunking method if we encounter an error
+      if (error.response && error.response.status === 413) {
+        console.log(
+          "Content too large for single API call. Falling back to chunking method..."
+        );
+      } else if (error.response && error.response.status === 429) {
+        console.log(
+          "Rate limit exceeded. Falling back to chunking method with delays..."
+        );
+      } else {
+        console.log("Unexpected error. Falling back to chunking method...");
+      }
+
+      // Split text into manageable chunks as fallback
+      const chunks = splitTextIntoChunks(text);
+      console.log(`Split content into ${chunks.length} chunks for processing`);
+
+      // Process each chunk sequentially
+      for (let i = 0; i < chunks.length; i++) {
+        console.log(`Processing chunk ${i + 1} of ${chunks.length}...`);
+
+        const isFirstChunk = i === 0;
+        const isLastChunk = i === chunks.length - 1;
+
+        // Process this chunk with retry logic
+        const chunkScript = await processChunkWithGroq(
+          chunks[i],
+          isFirstChunk,
+          isLastChunk,
+          targetLength,
+          i + 1,
+          chunks.length
+        );
+
+        // Add to complete script
+        completeScript += chunkScript + "\n\n";
+
+        // Add a standard delay between chunks to avoid rate limits
+        if (!isLastChunk) {
+          console.log("Adding standard delay between chunks (3 seconds)...");
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+        }
       }
     }
 

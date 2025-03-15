@@ -1,180 +1,203 @@
 import React, { useState } from "react";
 import axios from "axios";
-import "bootstrap/dist/css/bootstrap.min.css";
 import "./App.css";
 
 function App() {
   const [file, setFile] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [podcast, setPodcast] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [podcastData, setPodcastData] = useState(null);
   const [error, setError] = useState(null);
-  const [uploadStatus, setUploadStatus] = useState("");
-  const [processingProgress, setProcessingProgress] = useState(0);
+  const [podcastLength, setPodcastLength] = useState("medium"); // Default to medium (~20 min)
 
   const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
+    if (e.target.files[0]) {
+      setFile(e.target.files[0]);
+    }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
+  const handleUpload = async () => {
     if (!file) {
-      setError("Please select a PDF file");
+      setError("Please select a PDF file first.");
       return;
     }
 
-    setLoading(true);
-    setError(null);
-    setUploadStatus("Uploading PDF...");
-    setProcessingProgress(10);
-
     try {
-      // Create form data
+      setError(null);
+      setIsUploading(true);
+      setUploadProgress(0);
+
       const formData = new FormData();
       formData.append("pdf", file);
 
-      // Upload PDF and get text
-      setUploadStatus("Extracting text with OCR...");
-      setProcessingProgress(30);
-      const uploadResponse = await axios.post(
+      const response = await axios.post(
         "http://localhost:3000/api/upload",
-        formData
-      );
-
-      setUploadStatus("Generating podcast script...");
-      setProcessingProgress(60);
-
-      // Generate podcast
-      const generateResponse = await axios.post(
-        "http://localhost:3000/api/generate",
+        formData,
         {
-          text: uploadResponse.data.text,
-          filename: uploadResponse.data.filename,
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+          onUploadProgress: (progressEvent) => {
+            const percentCompleted = Math.round(
+              (progressEvent.loaded * 100) / progressEvent.total
+            );
+            setUploadProgress(percentCompleted);
+          },
         }
       );
 
-      setUploadStatus("Creating audio...");
-      setProcessingProgress(90);
+      setIsUploading(false);
+      setUploadProgress(100);
 
-      setPodcast(generateResponse.data);
-      setLoading(false);
-      setUploadStatus("");
-      setProcessingProgress(100);
+      // Start podcast generation
+      await generatePodcast(response.data.text, response.data.filename);
     } catch (err) {
-      console.error("Error:", err);
-      setError("Failed to generate podcast. Please try again in some time.");
-      setLoading(false);
-      setUploadStatus("");
-      setProcessingProgress(0);
+      setIsUploading(false);
+      setError("Failed to upload PDF. Please try again.");
+      console.error("Upload error:", err);
+    }
+  };
+
+  const generatePodcast = async (text, filename) => {
+    try {
+      setIsGenerating(true);
+      setGenerationProgress(0);
+
+      // Simulate progress updates
+      const progressInterval = setInterval(() => {
+        setGenerationProgress((prev) => {
+          if (prev >= 95) {
+            clearInterval(progressInterval);
+            return 95;
+          }
+          return prev + 5;
+        });
+      }, 3000);
+
+      const response = await axios.post("http://localhost:3000/api/generate", {
+        text,
+        filename,
+        podcastLength, // Send the user-selected podcast length to the backend
+      });
+
+      clearInterval(progressInterval);
+      setGenerationProgress(100);
+      setIsGenerating(false);
+      setPodcastData(response.data);
+    } catch (err) {
+      setIsGenerating(false);
+      setError("Failed to generate podcast. Please try again.");
+      console.error("Generation error:", err);
     }
   };
 
   return (
-    <div className="container mt-5">
-      <div className="row justify-content-center">
-        <div className="col-md-8">
-          <div className="card shadow-sm">
-            <div className="card-body">
-              <h1 className="text-center mb-4">PDFcast🎙️</h1>
+    <div className="App">
+      <header className="App-header">
+        <h1>AI Podcast Generator</h1>
+        <p>Transform your PDF documents into engaging podcasts</p>
+      </header>
 
-              <form onSubmit={handleSubmit}>
-                <div className="mb-3">
-                  <label htmlFor="pdfFile" className="form-label">
-                    Upload PDF
-                  </label>
-                  <input
-                    type="file"
-                    className="form-control"
-                    id="pdfFile"
-                    accept=".pdf"
-                    onChange={handleFileChange}
-                  />
-                  <div className="form-text">
-                    Upload a PDF to generate a podcast conversation about its
-                    content.
-                  </div>
-                </div>
+      <main className="App-main">
+        <div className="upload-container">
+          <h2>Upload a PDF</h2>
+          <input
+            type="file"
+            accept=".pdf"
+            onChange={handleFileChange}
+            disabled={isUploading || isGenerating}
+          />
 
-                <div className="d-grid">
-                  <button
-                    type="submit"
-                    className="btn btn-primary"
-                    disabled={loading || !file}
-                  >
-                    {loading ? (
-                      <>
-                        <span
-                          className="spinner-border spinner-border-sm me-2"
-                          role="status"
-                          aria-hidden="true"
-                        ></span>
-                        {uploadStatus}
-                      </>
-                    ) : (
-                      "Generate Podcast"
-                    )}
-                  </button>
-                </div>
-              </form>
+          {/* Podcast Length Selector */}
+          <div className="podcast-length-selector">
+            <label htmlFor="podcastLength">Podcast Length:</label>
+            <select
+              id="podcastLength"
+              value={podcastLength}
+              onChange={(e) => setPodcastLength(e.target.value)}
+              disabled={isUploading || isGenerating}
+            >
+              <option value="short">~10 minutes</option>
+              <option value="medium">~20 minutes</option>
+              <option value="long">~30 minutes</option>
+            </select>
+          </div>
 
-              {loading && (
-                <div className="mt-3">
-                  <div className="progress">
-                    <div
-                      className="progress-bar progress-bar-striped progress-bar-animated"
-                      role="progressbar"
-                      style={{ width: `${processingProgress}%` }}
-                      aria-valuenow={processingProgress}
-                      aria-valuemin="0"
-                      aria-valuemax="100"
-                    >
-                      {processingProgress}%
-                    </div>
-                  </div>
-                  <p className="text-center mt-2">{uploadStatus}</p>
-                </div>
-              )}
+          <button
+            onClick={handleUpload}
+            disabled={!file || isUploading || isGenerating}
+            className="upload-button"
+          >
+            {isUploading ? "Uploading..." : "Upload & Generate Podcast"}
+          </button>
 
-              {error && <div className="alert alert-danger mt-3">{error}</div>}
+          {error && <div className="error-message">{error}</div>}
+        </div>
 
-              {podcast && (
-                <div className="mt-4">
-                  <h3>Your Podcast is Ready!</h3>
-                  <div className="card mt-3">
-                    <div className="card-body">
-                      <h5 className="card-title">Podcast Script</h5>
-                      <pre className="script-content">{podcast.script}</pre>
-                    </div>
-                  </div>
-                  <div className="mt-3">
-                    <h5>Listen to Podcast</h5>
-                    <audio
-                      controls
-                      className="w-100"
-                      onError={(e) => console.error("Audio error:", e)}
-                    >
-                      <source
-                        src={`http://localhost:3000${podcast.audioUrl}`}
-                        type="audio/wav"
-                      />
-                      Your browser does not support the audio element.
-                    </audio>
-                  </div>
-                  <div className="d-grid mt-3">
-                    <a
-                      className="btn btn-outline-primary"
-                      href={`http://localhost:3000${podcast.audioUrl}`}
-                      download
-                    >
-                      Download Podcast
-                    </a>
-                  </div>
-                </div>
-              )}
+        {isUploading && (
+          <div className="progress-container">
+            <h3>Uploading PDF</h3>
+            <div className="progress-bar">
+              <div
+                className="progress-fill"
+                style={{ width: `${uploadProgress}%` }}
+              ></div>
+            </div>
+            <p>{uploadProgress}%</p>
+          </div>
+        )}
+
+        {isGenerating && (
+          <div className="progress-container">
+            <h3>Generating Podcast</h3>
+            <div className="progress-bar">
+              <div
+                className="progress-fill"
+                style={{ width: `${generationProgress}%` }}
+              ></div>
+            </div>
+            <p>{generationProgress}%</p>
+          </div>
+        )}
+
+        {podcastData && (
+          <div className="podcast-container">
+            <h2>Your Podcast is Ready!</h2>
+
+            <div className="audio-player">
+              <h3>Listen to Your Podcast</h3>
+              <audio
+                controls
+                src={`http://localhost:3000${podcastData.audioUrl}`}
+              >
+                Your browser does not support the audio element.
+              </audio>
+              <a
+                href={`http://localhost:3000${podcastData.audioUrl}`}
+                download
+                className="download-button"
+              >
+                Download Audio
+              </a>
+            </div>
+
+            <div className="podcast-script">
+              <h3>Podcast Script</h3>
+              <div className="script-content">
+                {podcastData.script.split("\n").map((line, index) => (
+                  <p key={index}>{line}</p>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
-      </div>
+        )}
+      </main>
+
+      <footer className="App-footer">
+        <p>&copy; 2025 PDFCast</p>
+      </footer>
     </div>
   );
 }

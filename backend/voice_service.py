@@ -65,7 +65,7 @@ def generate_podcast_audio(script_data):
         else:
             voice_settings = host_b_settings.copy()
             # Slight variations for naturalness while maintaining consistency
-            voice_settings["speed"] = random.uniform(1, 1.03)
+            voice_settings["speed"] = random.uniform(0.97, 1.03)
 
         # Process emotional cues and pauses
         text, emotion_adjustments = process_emotional_cues(text)
