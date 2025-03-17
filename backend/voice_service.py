@@ -143,7 +143,6 @@ def generate_podcast_audio(script_data):
         # Add a small delay between processing lines to avoid overwhelming the TTS service
         time.sleep(0.5)
 
-    # Combine all audio segments
     if audio_segments:
         combined_audio = []
         for file in audio_segments:

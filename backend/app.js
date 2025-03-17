@@ -134,7 +134,6 @@ async function processChunkWithGroq(
   chunk,
   isFirstChunk,
   isLastChunk,
-  podcastLength,
   chunkNumber,
   totalChunks
 ) {
@@ -150,7 +149,6 @@ async function processChunkWithGroq(
   let systemPrompt = `You are the world's best podcast script creator. You transform written content into authentic, engaging conversations between two hosts (Host A and Host B) that sound EXACTLY like real podcasts.
 
 Your podcast scripts should:
-
 1. Be genuinely conversational - not scripted-sounding narration taking turns
 2. Include natural speech patterns with appropriate filler words ("um", "like", "you know") but use them sparingly
 3. Feature hosts interrupting each other, finishing each other's sentences, and building on ideas
