@@ -23,6 +23,77 @@ const apiLimiter = rateLimit({
   message: "Too many requests, please try again later.",
 });
 
+// Define fixed podcast duration (10-15 min range) hard cap concept
+const TARGET_PODCAST_DURATION = 12; // Target 12 minutes (middle of 10-15 range)
+
+// Words per minute for speech calculation - adjusted for Kokoro TTS's actual speed
+// Previous value was 150, but logs showed 2785 words took 13 minutes (≈214 wpm)
+const WORDS_PER_MINUTE = 214; // Adjusted based on production data
+
+// Function to calculate target word count based on duration
+function calculateTargetWordCount(durationMinutes) {
+  return durationMinutes * WORDS_PER_MINUTE;
+}
+
+// Function to count words in a script
+function countWords(script) {
+  if (!script) return 0;
+  return script
+    .replace(/\[.*?\]/g, "") // Remove stage directions
+    .split(/\s+/)
+    .filter((word) => word.length > 0).length;
+}
+
+// Modified function to verify if script meets target duration with better logging
+function verifyScriptDuration(script) {
+  const wordCount = countWords(script);
+  const estimatedMinutes = wordCount / WORDS_PER_MINUTE;
+  const varianceMinutes = 5; // How much we allow duration to vary from target
+  const isWithinRange =
+    Math.abs(estimatedMinutes - TARGET_PODCAST_DURATION) <= varianceMinutes;
+
+  return {
+    wordCount,
+    estimatedMinutes,
+    targetMinutes: TARGET_PODCAST_DURATION,
+    varianceAllowed: varianceMinutes,
+    acceptableRange: `${TARGET_PODCAST_DURATION - varianceMinutes}-${
+      TARGET_PODCAST_DURATION + varianceMinutes
+    } minutes`,
+    isWithinRange,
+  };
+}
+
+// Function to validate if text is an actual podcast script
+function isValidPodcastScript(text) {
+  // Check if the text contains Host A and Host B patterns
+  const hostAPattern = /Host A:/i;
+  const hostBPattern = /Host B:/i;
+
+  // It must contain dialogue from both hosts
+  if (!hostAPattern.test(text) || !hostBPattern.test(text)) {
+    return false;
+  }
+
+  // Check that it's not just instructions
+  const instructionPatterns = [
+    /step 1:/i,
+    /identify unnecessary/i,
+    /simplify analytical/i,
+    /streamline host/i,
+    /approach to condensing/i,
+    /word count monitoring/i,
+  ];
+
+  for (const pattern of instructionPatterns) {
+    if (pattern.test(text)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 // Configure storage for uploaded files
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -85,37 +156,78 @@ function optimizeScriptForTTS(script) {
   return optimizedLines.join("\n");
 }
 
-// Function to split text into manageable chunks (used as fallback)
-function splitTextIntoChunks(text, chunkSize = 8000) {
-  // If text is smaller than chunk size, return it as is
-  if (text.length <= chunkSize) {
+// Add this near the top with other constants
+const MAX_CONCURRENT_REQUESTS = 3; // Reduced from 5 to avoid rate limits
+const MIN_REQUEST_INTERVAL = 1500; // Increased from 1000ms to 1500ms
+const OPTIMAL_CHUNK_SIZE = 10000; // Increased from 6000 to 10000
+const MAX_CHUNK_COUNT = 12; // New constant to limit total chunks
+
+// Improved splitTextIntoChunks function
+function splitTextIntoChunks(text) {
+  // If text is very small, return it as is
+  if (text.length < OPTIMAL_CHUNK_SIZE) {
     return [text];
   }
+
+  // Calculate minimum number of chunks needed based on text length
+  const minChunksNeeded = Math.ceil(text.length / OPTIMAL_CHUNK_SIZE);
+  // Use actual chunks needed but cap at MAX_CHUNK_COUNT
+  const targetChunks = Math.min(minChunksNeeded, MAX_CHUNK_COUNT);
+
+  console.log(
+    `Planning to split content into approximately ${targetChunks} chunks`
+  );
+
+  // Calculate target chunk size - larger than before to reduce chunks
+  const targetChunkSize = Math.ceil(text.length / targetChunks);
 
   const chunks = [];
   let startIndex = 0;
 
   while (startIndex < text.length) {
-    // Find a good breaking point (end of sentence) near the chunk size
-    let endIndex = Math.min(startIndex + chunkSize, text.length);
+    // Aim for target chunk size but don't exceed text length
+    const idealEndIndex = startIndex + targetChunkSize;
+    let endIndex = Math.min(idealEndIndex, text.length);
 
-    // If we're not at the end of the text, try to find the end of a sentence
+    // If we're not at the end, find a good breaking point
     if (endIndex < text.length) {
-      // Look for the last period, question mark, or exclamation point
-      const lastPeriod = text.lastIndexOf(".", endIndex);
-      const lastQuestion = text.lastIndexOf("?", endIndex);
-      const lastExclamation = text.lastIndexOf("!", endIndex);
-
-      // Find the maximum of these positions
-      const maxPunctuation = Math.max(
-        lastPeriod,
-        lastQuestion,
-        lastExclamation
+      // Search for break points within the last 20% of the chunk
+      const searchWindowStart = Math.max(
+        startIndex,
+        endIndex - Math.floor(targetChunkSize * 0.2)
       );
 
-      // If we found a sentence end, use it as the breaking point
-      if (maxPunctuation > startIndex) {
-        endIndex = maxPunctuation + 1;
+      // Look for paragraph breaks first (double newline)
+      const paragraphBreak = text.lastIndexOf("\n\n", endIndex);
+      if (paragraphBreak > searchWindowStart) {
+        endIndex = paragraphBreak + 2;
+      } else {
+        // Then look for single newline
+        const lineBreak = text.lastIndexOf("\n", endIndex);
+        if (lineBreak > searchWindowStart) {
+          endIndex = lineBreak + 1;
+        } else {
+          // Then look for end of sentence
+          const lastPeriod = text.lastIndexOf(".", endIndex);
+          const lastQuestion = text.lastIndexOf("?", endIndex);
+          const lastExclamation = text.lastIndexOf("!", endIndex);
+
+          const maxPunctuation = Math.max(
+            lastPeriod,
+            lastQuestion,
+            lastExclamation
+          );
+
+          if (maxPunctuation > searchWindowStart) {
+            endIndex = maxPunctuation + 1;
+          } else {
+            // If all else fails, just use a space
+            const lastSpace = text.lastIndexOf(" ", endIndex);
+            if (lastSpace > searchWindowStart) {
+              endIndex = lastSpace + 1;
+            }
+          }
+        }
       }
     }
 
@@ -124,9 +236,70 @@ function splitTextIntoChunks(text, chunkSize = 8000) {
 
     // Move to the next chunk
     startIndex = endIndex;
+
+    // Safety check - if we've hit MAX_CHUNK_COUNT and there's still text, combine the rest
+    if (chunks.length === MAX_CHUNK_COUNT - 1 && startIndex < text.length) {
+      chunks.push(text.substring(startIndex));
+      break;
+    }
   }
 
+  console.log(
+    `Split content into ${chunks.length} chunks (average size: ${Math.round(
+      text.length / chunks.length
+    )} chars)`
+  );
   return chunks;
+}
+
+// Add this request queue manager
+class RequestQueue {
+  constructor(maxConcurrent = 5, minInterval = 1000) {
+    this.queue = [];
+    this.activeRequests = 0;
+    this.maxConcurrent = maxConcurrent;
+    this.minInterval = minInterval;
+    this.lastRequestTime = 0;
+  }
+
+  async add(requestFn) {
+    return new Promise((resolve, reject) => {
+      const execRequest = async () => {
+        this.activeRequests++;
+
+        // Ensure minimum time between requests
+        const now = Date.now();
+        const timeSinceLastRequest = now - this.lastRequestTime;
+        if (timeSinceLastRequest < this.minInterval) {
+          await new Promise((r) =>
+            setTimeout(r, this.minInterval - timeSinceLastRequest)
+          );
+        }
+
+        try {
+          this.lastRequestTime = Date.now();
+          const result = await requestFn();
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        } finally {
+          this.activeRequests--;
+          this.processQueue();
+        }
+      };
+
+      this.queue.push(execRequest);
+      this.processQueue();
+    });
+  }
+
+  processQueue() {
+    if (this.queue.length === 0) return;
+    if (this.activeRequests >= this.maxConcurrent) return;
+
+    const nextRequest = this.queue.shift();
+    nextRequest();
+  }
 }
 
 // Function to process a single chunk with Groq API with retry logic (used as fallback)
@@ -135,15 +308,36 @@ async function processChunkWithGroq(
   isFirstChunk,
   isLastChunk,
   chunkNumber,
-  totalChunks
+  totalChunks,
+  targetWordCount
 ) {
-  const lengthTokens = {
-    short: 3000,
-    medium: 6000,
-    long: 9000,
-  };
+  // Calculate per-chunk word count
+  const totalTargetWords = targetWordCount;
 
-  const maxTokens = lengthTokens[podcastLength] || 6000;
+  // Allocate words more intelligently across chunks
+  const baseWordsPerChunk = Math.floor(totalTargetWords / totalChunks);
+
+  // Improved word budget allocation:
+  // 1. Increased percentage boost for first and last chunks (15% instead of 10%)
+  // 2. Removed hard caps
+  // 3. Consider content density for middle chunks
+  let chunkWordCount;
+  if (isFirstChunk) {
+    chunkWordCount = Math.floor(baseWordsPerChunk * 1.15); // 15% more for intro, no cap
+  } else if (isLastChunk) {
+    chunkWordCount = Math.floor(baseWordsPerChunk * 1.15); // 15% more for conclusion, no cap
+  } else {
+    // Consider content density for middle chunks
+    if (chunkNumber <= Math.ceil(totalChunks / 2)) {
+      // First half chunks get a bit more words since they usually contain more core content
+      chunkWordCount = Math.floor(baseWordsPerChunk * 1.05); // 5% more for first half
+    } else {
+      // Later chunks typically have less dense content, so they get fewer words
+      chunkWordCount = Math.floor(baseWordsPerChunk * 0.9); // 10% less for second half
+    }
+  }
+
+  const maxTokens = 10000;
 
   // Adjust system prompt based on chunk position
   let systemPrompt = `You are the world's best podcast script creator. You transform written content into authentic, engaging conversations between two hosts (Host A and Host B) that sound EXACTLY like real podcasts.
@@ -156,48 +350,58 @@ Your podcast scripts should:
 5. Have hosts ask each other questions to drive the conversation forward
 6. Include brief personal anecdotes or examples that relate to the content
 7. Have distinct personalities: Host A is more analytical and detail-oriented, Host B is more enthusiastic and asks clarifying questions
-8. Discuss EVERY detail from the source material, even small points, exploring them thoroughly
+8. Discuss important details from the source material, focusing on key points
 9. Include tangents and side discussions that naturally emerge from the content
 10. Feature moments of humor, surprise, or disagreement between hosts
-11. Use concise, clear sentences that are easy to speak aloud - avoid complex, run-on sentences`;
+11. Use concise, clear sentences that are easy to speak aloud - avoid complex, run-on sentences
+
+EXTREMELY IMPORTANT: This is part ${chunkNumber}/${totalChunks} of a podcast script. Your chunk MUST be EXACTLY ${chunkWordCount} words. No more, no less.`;
 
   // Adjust user prompt based on chunk position
   let userPrompt;
 
   if (isFirstChunk && isLastChunk) {
     // Single chunk - complete podcast
-    userPrompt = `Create a complete podcast script from the following PDF content. The script should be a natural conversation between Host A and Host B that thoroughly discusses EVERY detail and nuance in the content.
+    userPrompt = `Create a complete podcast script from the following PDF content. Your script must be a natural conversation between Host A and Host B that covers the most important points.
 
 Include a proper introduction at the beginning and a conclusion at the end.
+
+IMPORTANT: Your script MUST be EXACTLY ${chunkWordCount} words. Focus only on the MOST important information and themes.
 
 PDF Content: ${chunk}`;
   } else if (isFirstChunk) {
     // First chunk - include introduction
-    userPrompt = `Create the beginning of a podcast script from the following PDF content (this is part 1 of ${totalChunks} parts). The script should be a natural conversation between Host A and Host B.
+    userPrompt = `Create the first part of a podcast script from the following PDF content. Your script must be a natural conversation between Host A and Host B.
 
 Start with a proper introduction to the topic and the hosts. This is just the beginning of the podcast, so don't conclude the discussion.
 
-PDF Content (Part 1/${totalChunks}): ${chunk}`;
+IMPORTANT: Your script MUST be EXACTLY ${chunkWordCount} words. Focus on setting up the topic and introducing key concepts from the beginning of the document.
+
+PDF Content (Beginning): ${chunk}`;
   } else if (isLastChunk) {
     // Last chunk - include conclusion
-    userPrompt = `Continue a podcast script from the following PDF content (this is part ${chunkNumber} of ${totalChunks} parts). The script should be a natural conversation between Host A and Host B.
+    userPrompt = `Create the final part of a podcast script from the following PDF content. Your script must be a natural conversation between Host A and Host B.
 
-This is the final part of the podcast, so include a proper conclusion that wraps up the entire discussion.
+This is the FINAL part of the podcast, so include a proper conclusion that wraps up the entire discussion naturally and satisfyingly.
 
-PDF Content (Part ${chunkNumber}/${totalChunks}): ${chunk}`;
+IMPORTANT: Your script MUST be EXACTLY ${chunkWordCount} words. Focus on bringing the discussion to a natural conclusion that doesn't feel rushed or abrupt.
+
+PDF Content (Ending): ${chunk}`;
   } else {
     // Middle chunk - continue conversation
-    userPrompt = `Continue a podcast script from the following PDF content (this is part ${chunkNumber} of ${totalChunks} parts). The script should be a natural conversation between Host A and Host B.
+    userPrompt = `Continue a podcast script from the following PDF content. Your script must be a natural conversation between Host A and Host B.
 
-This is a continuation of an ongoing podcast, so don't introduce the topic again or conclude the discussion.
+This is part ${chunkNumber} of ${totalChunks} of an ongoing podcast, so don't introduce the topic again or conclude the discussion.
 
-PDF Content (Part ${chunkNumber}/${totalChunks}): ${chunk}`;
+IMPORTANT: Your script MUST be EXACTLY ${chunkWordCount} words. Focus only on the most important points in this section of content.
+
+PDF Content (Middle Section): ${chunk}`;
   }
 
-  // Implement retry logic with exponential backoff
+  // Implement improved retry logic with exponential backoff and jitter
   const maxRetries = 5;
   let retryCount = 0;
-  let retryDelay = 3000; // Start with 3 second delay
+  let retryDelay = 2000; // Start with 2 seconds delay
 
   while (retryCount <= maxRetries) {
     try {
@@ -250,17 +454,17 @@ PDF Content (Part ${chunkNumber}/${totalChunks}): ${chunk}`;
         const retryAfter = error.response.headers["retry-after"];
         const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : retryDelay;
 
+        // Add jitter to avoid thundering herd problem (±20%)
+        const jitter = waitTime * (0.8 + Math.random() * 0.4);
+
         console.log(
           `Rate limit exceeded. Waiting ${
-            waitTime / 1000
+            Math.round(jitter / 100) / 10
           } seconds before retrying...`
         );
 
-        // Wait for the specified time
-        await new Promise((resolve) => setTimeout(resolve, waitTime));
-
-        // Increase the delay for next potential retry (exponential backoff)
-        retryDelay = retryDelay * 2;
+        await new Promise((resolve) => setTimeout(resolve, jitter));
+        retryDelay = Math.min(retryDelay * 1.5, 30000); // Cap at 30 seconds
       } else if (retryCount <= maxRetries) {
         // For other errors, also retry with backoff
         console.log(
@@ -282,12 +486,103 @@ PDF Content (Part ${chunkNumber}/${totalChunks}): ${chunk}`;
   );
 }
 
-// Ensure directories exist
-fs.ensureDirSync("../uploads");
-fs.ensureDirSync("../public/podcasts");
-fs.ensureDirSync("../temp");
+// Function to trim script while preserving structure
+function trimScriptPreservingStructure(script, maxWordCount) {
+  // If already under limit, return as is
+  const currentWordCount = countWords(script);
+  if (currentWordCount <= maxWordCount) {
+    return script;
+  }
 
-// Routes
+  console.log(
+    `Smart trimming script from ${currentWordCount} to ${maxWordCount} words`
+  );
+
+  const lines = script.split("\n");
+  const resultLines = [];
+  let wordsAdded = 0;
+
+  // Identify introduction and conclusion sections
+  const introLines = Math.min(10, Math.floor(lines.length * 0.15)); // First 15% or max 10 lines
+  const conclusionStart = Math.max(
+    lines.length - 15,
+    Math.floor(lines.length * 0.85)
+  ); // Last 15% or last 15 lines
+
+  // Process the script in sections (intro, middle, conclusion)
+  // Always include the intro
+  for (let i = 0; i < introLines; i++) {
+    if (lines[i].trim()) {
+      resultLines.push(lines[i]);
+      wordsAdded += countWords(lines[i]);
+    } else {
+      resultLines.push(""); // Keep empty lines
+    }
+  }
+
+  // Add middle section, limiting words
+  let maxMiddleWords = Math.floor(maxWordCount * 0.7); // 70% of words for middle section
+  for (let i = introLines; i < conclusionStart; i++) {
+    if (!lines[i].trim()) {
+      resultLines.push(""); // Keep empty lines
+      continue;
+    }
+
+    const lineWords = countWords(lines[i]);
+    if (wordsAdded + lineWords <= maxMiddleWords) {
+      resultLines.push(lines[i]);
+      wordsAdded += lineWords;
+    } else {
+      resultLines.push(""); // Keep empty lines
+    }
+  }
+
+  // Always include conclusion
+  for (let i = conclusionStart; i < lines.length; i++) {
+    if (lines[i].trim()) {
+      resultLines.push(lines[i]);
+      wordsAdded += countWords(lines[i]);
+    } else {
+      resultLines.push(""); // Keep empty lines
+    }
+  }
+
+  // Check if we need to add a conclusion
+  const lastLines = resultLines.slice(-5).join(" ").toLowerCase();
+  const conclusionPatterns = [
+    "wrap up",
+    "conclude",
+    "to sum up",
+    "in conclusion",
+    "thank you for listening",
+    "thanks for joining",
+    "until next time",
+  ];
+  const hasConclusion = conclusionPatterns.some((pattern) =>
+    lastLines.includes(pattern)
+  );
+
+  if (!hasConclusion) {
+    // Add a natural conclusion
+    resultLines.push("");
+    resultLines.push(
+      "Host A: Well, that brings us to the end of our discussion today. We covered a lot of ground on this fascinating topic."
+    );
+    resultLines.push(
+      "Host B: Absolutely! I really enjoyed our conversation. There's so much depth to this subject, and I feel like we've given our listeners a good overview of the key points."
+    );
+    resultLines.push(
+      "Host A: If you found this interesting, we encourage you to dive deeper into some of the concepts we covered today."
+    );
+    resultLines.push(
+      "Host B: Thanks for joining us, and we hope you'll tune in next time for more engaging discussions!"
+    );
+  }
+
+  return resultLines.join("\n");
+}
+
+// Fix the upload route
 app.post("/api/upload", upload.single("pdf"), async (req, res) => {
   try {
     if (!req.file) {
@@ -323,34 +618,18 @@ app.post("/api/upload", upload.single("pdf"), async (req, res) => {
 // Podcast generation endpoint
 app.post("/api/generate", apiLimiter, async (req, res) => {
   try {
-    const { text, filename, voiceOptions, podcastLength = "medium" } = req.body;
+    const { text, filename, voiceOptions } = req.body;
 
-    console.log(`Generating podcast for file: ${filename}`);
+    console.log(`===== PODCAST GENERATION STARTED =====`);
+    console.log(`Source: ${filename}`);
     console.log(`Text length: ${text.length} characters`);
-    console.log(`Requested podcast length: ${podcastLength}`);
+    console.log(`Target duration: ${TARGET_PODCAST_DURATION} minutes`);
 
-    // Determine target length based on content size
-    let targetLength;
-    if (text.length < 2000) {
-      targetLength = "short"; // 10-15 minutes
-    } else if (text.length < 5000) {
-      targetLength = "medium"; // 15-25 minutes
-    } else {
-      targetLength = "long"; // 25-35 minutes
-    }
-
-    // Override with user preference if provided
-    if (podcastLength) {
-      targetLength = podcastLength;
-    }
-
-    const lengthTokens = {
-      short: 3000,
-      medium: 6000,
-      long: 9000,
-    };
-
-    const maxTokens = lengthTokens[targetLength] || 6000;
+    // Calculate target word count based on fixed duration
+    const targetWordCount = calculateTargetWordCount(TARGET_PODCAST_DURATION);
+    console.log(
+      `Target word count: ${targetWordCount} words (at ${WORDS_PER_MINUTE} words/minute)`
+    );
 
     let completeScript = "";
 
@@ -359,29 +638,19 @@ app.post("/api/generate", apiLimiter, async (req, res) => {
       console.log("Attempting to process entire PDF in one API call...");
 
       // System prompt for podcast creation
-      const systemPrompt = `You are the world's best podcast script creator. You transform written content into authentic, engaging conversations between two hosts (Host A and Host B) that sound EXACTLY like real podcasts.
+      const systemPrompt = `You are the world's best podcast script creator. You transform written content into authentic, engaging conversations between two hosts (Host A and Host B).
 
-Your podcast scripts should:
-
-1. Be genuinely conversational - not scripted-sounding narration taking turns
-2. Include natural speech patterns with appropriate filler words ("um", "like", "you know") but use them sparingly
-3. Feature hosts interrupting each other, finishing each other's sentences, and building on ideas
-4. Include emotional reactions with clear tone indicators ("Wow!" [excited], "That's fascinating!" [curious], "Wait, really?" [surprised])
-5. Have hosts ask each other questions to drive the conversation forward
-6. Include brief personal anecdotes or examples that relate to the content
-7. Have distinct personalities: Host A is more analytical and detail-oriented, Host B is more enthusiastic and asks clarifying questions
-8. Discuss EVERY detail from the source material, even small points, exploring them thoroughly
-9. Include tangents and side discussions that naturally emerge from the content
-10. Feature moments of humor, surprise, or disagreement between hosts
-11. Have a clear introduction, detailed middle discussion, and satisfying conclusion
-12. Use concise, clear sentences that are easy to speak aloud - avoid complex, run-on sentences`;
+EXTREMELY IMPORTANT: The script MUST be EXACTLY ${targetWordCount} words to produce a ${TARGET_PODCAST_DURATION}-minute podcast. No more, no less.`;
 
       // User prompt for podcast creation
-      const userPrompt = `Create a podcast script from the following PDF content. The script should be a natural conversation between Host A and Host B that thoroughly discusses EVERY detail and nuance in the content, including small points that might seem minor.
-
-The hosts should have a genuine back-and-forth conversation where they react to each other, ask questions, express opinions, and occasionally share brief personal perspectives.
+      const userPrompt = `Create a podcast script from the following PDF content. The script should be a natural conversation between Host A and Host B that discusses the main points and important details from the content.
 
 Use concise sentences that are easy to speak naturally. Break up long, complex sentences into shorter ones.
+
+EXTREMELY IMPORTANT:
+1. Your script MUST be EXACTLY ${targetWordCount} words
+2. Include a proper introduction, detailed discussion, and natural conclusion
+3. Focus on the most important information from the source content
 
 PDF Content: ${text}`;
 
@@ -401,7 +670,7 @@ PDF Content: ${text}`;
             },
           ],
           temperature: 0.7,
-          max_tokens: maxTokens,
+          max_tokens: 10000,
           top_p: 0.9,
         },
         {
@@ -417,6 +686,50 @@ PDF Content: ${text}`;
       // Remove <think> tags if present in the response
       completeScript = response.data.choices[0].message.content;
       completeScript = completeScript.replace(/<think>[\s\S]*?<\/think>/g, "");
+
+      // Verify script duration
+      const durationCheck = verifyScriptDuration(completeScript);
+      console.log(`\n=== SCRIPT GENERATION RESULTS ===`);
+      console.log(`Word count: ${durationCheck.wordCount} words`);
+      console.log(
+        `Estimated duration: ${durationCheck.estimatedMinutes.toFixed(
+          1
+        )} minutes`
+      );
+      console.log(`Target duration: ${durationCheck.targetMinutes} minutes`);
+      console.log(`Acceptable range: ${durationCheck.acceptableRange}`);
+      console.log(
+        `Within acceptable range: ${durationCheck.isWithinRange ? "Yes" : "No"}`
+      );
+
+      // Only apply minimal protection for extreme outliers (3x target length)
+      if (durationCheck.estimatedMinutes > TARGET_PODCAST_DURATION * 3) {
+        console.log(
+          `\n=== APPLYING TRIMMING ===\nScript is excessively long (${durationCheck.estimatedMinutes.toFixed(
+            1
+          )} min, > ${(TARGET_PODCAST_DURATION * 3).toFixed(1)} min threshold)`
+        );
+        const safeMaxWords = calculateTargetWordCount(
+          TARGET_PODCAST_DURATION * 2
+        );
+        completeScript = trimScriptPreservingStructure(
+          completeScript,
+          safeMaxWords
+        );
+        console.log(
+          `After minimal trimming: ${countWords(completeScript)} words`
+        );
+      } else {
+        console.log(
+          `\n=== NO TRIMMING NEEDED ===\nScript length (${durationCheck.estimatedMinutes.toFixed(
+            1
+          )} min) below ${(TARGET_PODCAST_DURATION * 3).toFixed(
+            1
+          )} min threshold`
+        );
+      }
+
+      console.log("Script generation completed successfully");
     } catch (error) {
       console.error("Error processing entire PDF:", error.message);
 
@@ -437,35 +750,100 @@ PDF Content: ${text}`;
       const chunks = splitTextIntoChunks(text);
       console.log(`Split content into ${chunks.length} chunks for processing`);
 
-      // Process each chunk sequentially
-      for (let i = 0; i < chunks.length; i++) {
-        console.log(`Processing chunk ${i + 1} of ${chunks.length}...`);
+      // Create request queue to manage API requests
+      const requestQueue = new RequestQueue(
+        MAX_CONCURRENT_REQUESTS,
+        MIN_REQUEST_INTERVAL
+      );
 
+      // Create an array to hold all chunk results in correct order
+      const chunkResults = new Array(chunks.length);
+
+      // Calculate actual target word count - aim for slightly under to avoid issues
+      const actualTargetWords = targetWordCount * 0.98;
+      console.log(
+        `Adjusted target word count: ${Math.round(actualTargetWords)} words`
+      );
+
+      // Create promises for all chunks
+      const chunkPromises = chunks.map((chunk, i) => {
         const isFirstChunk = i === 0;
         const isLastChunk = i === chunks.length - 1;
 
-        // Process this chunk with retry logic
-        const chunkScript = await processChunkWithGroq(
-          chunks[i],
-          isFirstChunk,
-          isLastChunk,
-          targetLength,
-          i + 1,
-          chunks.length
+        // Add this request to the queue
+        return requestQueue.add(async () => {
+          console.log(`Processing chunk ${i + 1} of ${chunks.length}...`);
+
+          // Process chunk with improved function
+          const chunkScript = await processChunkWithGroq(
+            chunk,
+            isFirstChunk,
+            isLastChunk,
+            i + 1,
+            chunks.length,
+            Math.round(actualTargetWords)
+          );
+
+          // Store in results array at correct position
+          chunkResults[i] = chunkScript;
+          console.log(`Completed chunk ${i + 1} of ${chunks.length}`);
+          return chunkScript;
+        });
+      });
+
+      // Wait for all chunks to complete
+      await Promise.all(chunkPromises);
+
+      // Combine all chunks in correct order
+      completeScript = chunkResults.join("\n\n");
+
+      // Verify final combined script duration
+      const combinedCheck = verifyScriptDuration(completeScript);
+      console.log(`Combined chunks script statistics:
+        - Word count: ${combinedCheck.wordCount}
+        - Estimated duration: ${combinedCheck.estimatedMinutes.toFixed(
+          1
+        )} minutes
+        - Target duration: ${combinedCheck.targetMinutes} minutes
+        - Acceptable range: ${combinedCheck.acceptableRange}
+        - Within acceptable range: ${
+          combinedCheck.isWithinRange ? "Yes" : "No"
+        }`);
+
+      // If script is significantly longer than target, apply smart trimming - much higher threshold
+      if (combinedCheck.estimatedMinutes > TARGET_PODCAST_DURATION * 3) {
+        console.log(
+          `Script is excessively long (${combinedCheck.estimatedMinutes.toFixed(
+            1
+          )} min, > ${(TARGET_PODCAST_DURATION * 3).toFixed(1)} min threshold)`
+        );
+        // More generous target (allow up to 50% extra length)
+        const adjustedTargetWords = calculateTargetWordCount(
+          TARGET_PODCAST_DURATION * 2
+        );
+        completeScript = trimScriptPreservingStructure(
+          completeScript,
+          adjustedTargetWords
         );
 
-        // Add to complete script
-        completeScript += chunkScript + "\n\n";
-
-        // Add a standard delay between chunks to avoid rate limits
-        if (!isLastChunk) {
-          console.log("Adding standard delay between chunks (3 seconds)...");
-          await new Promise((resolve) => setTimeout(resolve, 3000));
-        }
+        const afterTrimmingCheck = verifyScriptDuration(completeScript);
+        console.log(`After smart trimming:
+          - Word count: ${afterTrimmingCheck.wordCount}
+          - Estimated duration: ${afterTrimmingCheck.estimatedMinutes.toFixed(
+            1
+          )} minutes`);
+      } else {
+        console.log(
+          `\n=== NO TRIMMING NEEDED ===\nScript length (${combinedCheck.estimatedMinutes.toFixed(
+            1
+          )} min) below ${(TARGET_PODCAST_DURATION * 3).toFixed(
+            1
+          )} min threshold`
+        );
       }
-    }
 
-    console.log("Script generation completed successfully");
+      console.log("Script generation completed successfully");
+    }
 
     // Optimize the script for TTS
     const optimizedScript = optimizeScriptForTTS(completeScript);

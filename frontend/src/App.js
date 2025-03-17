@@ -10,7 +10,7 @@ function App() {
   const [generationProgress, setGenerationProgress] = useState(0);
   const [podcastData, setPodcastData] = useState(null);
   const [error, setError] = useState(null);
-  const [podcastLength, setPodcastLength] = useState("medium"); // Default to medium (~20 min)
+  // Removed podcastLength state
 
   const handleFileChange = (e) => {
     if (e.target.files[0]) {
@@ -79,7 +79,7 @@ function App() {
       const response = await axios.post("http://localhost:3000/api/generate", {
         text,
         filename,
-        podcastLength, // Send the user-selected podcast length to the backend
+        // Removed podcastLength parameter
       });
 
       clearInterval(progressInterval);
@@ -110,20 +110,7 @@ function App() {
             disabled={isUploading || isGenerating}
           />
 
-          {/* Podcast Length Selector */}
-          <div className="podcast-length-selector">
-            <label htmlFor="podcastLength">Podcast Length:</label>
-            <select
-              id="podcastLength"
-              value={podcastLength}
-              onChange={(e) => setPodcastLength(e.target.value)}
-              disabled={isUploading || isGenerating}
-            >
-              <option value="short">~10 minutes</option>
-              <option value="medium">~20 minutes</option>
-              <option value="long">~30 minutes</option>
-            </select>
-          </div>
+          {/* Removed podcast length selector */}
 
           <button
             onClick={handleUpload}

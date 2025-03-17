@@ -8,7 +8,7 @@ Transform PDF documents into engaging podcast conversations using AI.
 - Extract text content automatically
 - Generate natural-sounding podcast scripts with DeepSeek-R1-Distill-Llama-70B
 - Convert scripts to audio using Kokoro TTS
-- Choose podcast length (10, 20, or 30 minutes)
+- Get a concise 10-15 minute podcast regardless of document length
 - Download generated podcasts
 
 ## Tech Stack
@@ -65,11 +65,10 @@ Transform PDF documents into engaging podcast conversations using AI.
 ## Usage
 
 1. Upload a PDF document using the file selector
-2. Choose your desired podcast length (10, 20, or 30 minutes)
-3. Click "Upload & Generate Podcast"
-4. Wait for the processing to complete
-5. Listen to your podcast directly in the browser
-6. Download the audio file if desired
+2. Click "Upload & Generate Podcast"
+3. Wait for the processing to complete
+4. Listen to your podcast directly in the browser
+5. Download the audio file if desired
 
 ## How It Works
 
