@@ -6,6 +6,7 @@ const path = require("path");
 const axios = require("axios");
 const rateLimit = require("express-rate-limit");
 const { extractTextFromPdf } = require("./tessaractOCR");
+const { synthesizeSpeech } = require("./aws_polly_tts");
 require("dotenv").config();
 
 const app = express();
@@ -848,84 +849,119 @@ PDF Content: ${text}`;
     // Optimize the script for TTS
     const optimizedScript = optimizeScriptForTTS(completeScript);
 
-    const scriptData = {
-      script: optimizedScript,
-    };
+    // Generate audio using AWS Polly instead of voice_service.py
+    console.log("Generating audio with AWS Polly TTS...");
 
-    // Generate audio using voice_service.py
-    console.log("Generating audio with Kokoro TTS...");
-    const { spawn } = require("child_process");
-    const audioProcess = spawn("python", ["voice_service.py"]);
+    // Parse the script to separate Host A and Host B lines
+    const lines = optimizedScript.split("\n").filter((line) => line.trim());
+    const audioSegments = [];
+    const timestamp = Date.now();
+    const tempDir = path.join(__dirname, "../temp");
+    const outputDir = path.join(__dirname, "../public/podcasts");
 
-    let audioOutput = "";
+    // Ensure directories exist
+    await fs.ensureDir(tempDir);
+    await fs.ensureDir(outputDir);
 
-    audioProcess.stdout.on("data", (data) => {
-      audioOutput += data.toString();
-    });
+    // Change extension from .wav to .mp3 to match AWS Polly output format
+    const outputFilename = `podcast_${timestamp}.mp3`;
+    const outputPath = path.join(outputDir, outputFilename);
 
-    audioProcess.stderr.on("data", (data) => {
-      console.error(`TTS Error: ${data.toString()}`);
-    });
+    // Voice mapping for AWS Polly (neural voices)
+    const hostAVoice = "Danielle"; // Female voice for Host A (main host)
+    const hostBVoice = "Stephen"; // Male voice for Host B
 
-    audioProcess.on("error", (error) => {
-      console.error("Error spawning audio process:", error);
-      return res
-        .status(500)
-        .json({ error: "Failed to generate podcast audio" });
-    });
+    // Process each line with the appropriate voice
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.trim()) continue;
 
-    // Pass voice options if provided
-    const inputData = {
-      script: scriptData.script,
-      voices: voiceOptions || { hostA: "af_bella", hostB: "am_echo" }, // Updated to bella and echo
-    };
+      // Extract speaker and text - FIX: Only split at the first colon when it follows a host pattern
+      let speaker, text;
 
-    audioProcess.stdin.write(JSON.stringify(inputData));
-    audioProcess.stdin.end();
+      // Improved regex to detect speaker prefixes like "Host A:" or "Host B:"
+      const speakerMatch = line.match(/^([^:]+?):\s*(.*)/);
 
-    await new Promise((resolve, reject) => {
-      audioProcess.on("close", (code) => {
-        if (code === 0) resolve();
-        else reject(new Error(`TTS process exited with code ${code}`));
-      });
-    });
-
-    let audioData;
-    try {
-      // Look for the last line that contains valid JSON
-      const lines = audioOutput.trim().split("\n");
-      let jsonLine = "";
-      for (let i = lines.length - 1; i >= 0; i--) {
-        if (lines[i].trim().startsWith("{")) {
-          jsonLine = lines[i];
-          break;
-        }
-      }
-
-      if (jsonLine) {
-        audioData = JSON.parse(jsonLine);
-        console.log("Parsed audio data:", audioData);
+      if (speakerMatch) {
+        speaker = speakerMatch[1].trim();
+        text = speakerMatch[2].trim();
       } else {
-        throw new Error("No valid JSON found in output");
+        speaker = i % 2 === 0 ? "Host A" : "Host B";
+        text = line.trim();
       }
-    } catch (e) {
-      console.error("Failed to parse audio output:", e.message);
-      console.error("Raw audio output:", audioOutput);
-      return res.status(500).json({ error: "Invalid audio output" });
+
+      // Debug the speaker extraction
+      console.log(`DEBUG: Extracted speaker: "${speaker}"`);
+
+      // Determine which voice to use - FIX THE REGEX TO PROPERLY DETECT HOST A
+      const isHostA = /host\s*a/i.test(speaker); // Case-insensitive, more flexible matching
+      const voice = isHostA ? hostAVoice : hostBVoice;
+
+      // Log the voice assignment
+      console.log(`DEBUG: Assigned voice: ${voice} for speaker: ${speaker}`);
+
+      // Generate the audio for this line
+      const tempFile = path.join(tempDir, `line_${i}.mp3`);
+      console.log(`Processing line ${i + 1}/${lines.length} with ${voice}...`);
+
+      // Use AWS Polly to synthesize speech
+      const success = await synthesizeSpeech(text, voice, tempFile, "neural");
+
+      if (success) {
+        audioSegments.push(tempFile);
+
+        // Add a pause after each line
+        if (
+          text.endsWith(".") ||
+          text.endsWith("!") ||
+          text.endsWith("?") ||
+          text.includes("[pause]")
+        ) {
+          const pauseLength = text.endsWith(".")
+            ? 0.6
+            : text.endsWith("!") || text.endsWith("?")
+            ? 0.7
+            : 0.4;
+          const pauseFile = path.join(tempDir, `pause_${i}.mp3`);
+
+          // Create a silent MP3 file for the pause
+          await createSilence(pauseFile, pauseLength);
+          audioSegments.push(pauseFile);
+        }
+      } else {
+        console.error(`Failed to generate audio for line ${i + 1}`);
+      }
     }
 
-    console.log(`Podcast generated successfully: ${audioData.audio_file}`);
+    // Combine all audio segments into one file
+    console.log("Combining audio segments...");
+    const combinedFile = path.join(outputDir, outputFilename);
+    await combineAudioFiles(audioSegments, combinedFile);
+
+    // Clean up temp files
+    for (const file of audioSegments) {
+      await fs.remove(file).catch(() => {});
+    }
+
+    console.log(`Podcast generated successfully: ${combinedFile}`);
 
     // Return podcast data
     res.json({
-      script: scriptData.script,
-      audioUrl: `/podcasts/${path.basename(audioData.audio_file)}`,
+      script: optimizedScript,
+      audioUrl: `/podcasts/${path.basename(combinedFile)}`,
     });
   } catch (error) {
     console.error("Error generating podcast:", error);
     res.status(500).json({ error: "Failed to generate podcast" });
   }
 });
+
+// Replace the helper functions with imports from audio-utils.js
+const {
+  createSilence,
+  combineAudioFiles,
+  isFFmpegAvailable,
+} = require("./audio-utils");
 
 // Serve static files from the public directory
 app.use(
@@ -941,4 +977,19 @@ app.get("/api/health", (req, res) => {
 // Start server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+
+  // Check and display ffmpeg status
+  if (!isFFmpegAvailable()) {
+    console.log("\n⚠️  WARNING: ffmpeg is not installed on this system.");
+    console.log(
+      "Audio quality will be reduced. For best results, install ffmpeg:"
+    );
+    console.log("- macOS: brew install ffmpeg");
+    console.log("- Ubuntu/Debian: sudo apt install ffmpeg");
+    console.log("- Windows: download from https://ffmpeg.org/download.html\n");
+  } else {
+    console.log(
+      "ffmpeg detected: audio processing will use optimal quality settings"
+    );
+  }
 });
