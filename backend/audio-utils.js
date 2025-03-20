@@ -144,8 +144,56 @@ async function combineAudioFiles(files, outputFile) {
   }
 }
 
+/**
+ * Post-process an MP3 file to fix potential structural issues
+ * @param {string} inputFile - Path to the input file
+ * @param {string} outputFile - Path to save the processed file (can be same as input)
+ * @returns {Promise<boolean>} Success/failure
+ */
+async function repairMp3File(inputFile, outputFile) {
+  if (!ffmpegAvailable) {
+    console.warn("Cannot repair MP3: ffmpeg not available");
+    return false;
+  }
+
+  try {
+    const tempFile = `${outputFile}.repaired.mp3`;
+
+    // Use ffmpeg to re-encode the MP3 file, which fixes header and frame issues
+    console.log(`Repairing MP3 file: ${inputFile}`);
+
+    // Command with options specifically to fix MP3 streaming issues:
+    // -c:a libmp3lame - Use LAME MP3 encoder
+    // -b:a 128k - Use consistent bitrate for better streaming
+    // -ar 44100 - Standard sampling rate for wide compatibility
+    // -ac 2 - Stereo audio
+    // -write_xing 1 - Write Xing header for better streaming
+    // -id3v2_version 3 - Compatible ID3 tags
+    execSync(
+      `ffmpeg -y -i "${inputFile}" -c:a libmp3lame -b:a 128k -ar 44100 -ac 2 -write_xing 1 -id3v2_version 3 "${tempFile}"`,
+      { stdio: "ignore" }
+    );
+
+    // Verify the repaired file
+    const stats = await fs.stat(tempFile);
+    if (stats.size < 1024) {
+      console.error("Repaired MP3 file is too small, repair failed");
+      return false;
+    }
+
+    // Replace the original with the repaired version
+    await fs.move(tempFile, outputFile, { overwrite: true });
+    console.log(`MP3 repair complete: ${outputFile} (${stats.size} bytes)`);
+    return true;
+  } catch (error) {
+    console.error("Failed to repair MP3 file:", error);
+    return false;
+  }
+}
+
 module.exports = {
   createSilence,
   combineAudioFiles,
   isFFmpegAvailable,
+  repairMp3File,
 };

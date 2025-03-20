@@ -868,8 +868,8 @@ PDF Content: ${text}`;
     const outputPath = path.join(outputDir, outputFilename);
 
     // Voice mapping for AWS Polly (neural voices)
-    const hostAVoice = "Danielle"; // Female voice for Host A (main host)
-    const hostBVoice = "Stephen"; // Male voice for Host B
+    const hostAVoice = "Joanna"; // Female voice for Host A (main host)
+    const hostBVoice = "Matthew"; // Male voice for Host B
 
     // Process each line with the appropriate voice
     for (let i = 0; i < lines.length; i++) {
@@ -905,7 +905,7 @@ PDF Content: ${text}`;
       console.log(`Processing line ${i + 1}/${lines.length} with ${voice}...`);
 
       // Use AWS Polly to synthesize speech
-      const success = await synthesizeSpeech(text, voice, tempFile, "neural");
+      const success = await synthesizeSpeech(text, voice, tempFile, "standard");
 
       if (success) {
         audioSegments.push(tempFile);
@@ -936,7 +936,26 @@ PDF Content: ${text}`;
     // Combine all audio segments into one file
     console.log("Combining audio segments...");
     const combinedFile = path.join(outputDir, outputFilename);
-    await combineAudioFiles(audioSegments, combinedFile);
+    let combinedSuccess = await combineAudioFiles(audioSegments, combinedFile);
+
+    // Add post-processing to repair the MP3 file
+    if (combinedSuccess) {
+      console.log("Post-processing audio to ensure playback compatibility...");
+      const repairSuccess = await repairMp3File(combinedFile, combinedFile);
+
+      if (repairSuccess) {
+        console.log("Audio post-processing successful");
+      } else {
+        console.warn(
+          "Audio post-processing failed, using original combined file"
+        );
+      }
+    } else {
+      console.error("Failed to combine audio segments");
+      return res
+        .status(500)
+        .json({ error: "Failed to generate podcast audio" });
+    }
 
     // Clean up temp files
     for (const file of audioSegments) {
@@ -961,6 +980,7 @@ const {
   createSilence,
   combineAudioFiles,
   isFFmpegAvailable,
+  repairMp3File,
 } = require("./audio-utils");
 
 // Serve static files from the public directory
@@ -973,6 +993,149 @@ app.use(
 app.get("/api/health", (req, res) => {
   res.json({ status: "Server is running" });
 });
+
+// Enhanced podcast streaming with improved error handling and validation
+app.get("/podcasts/:filename", async (req, res) => {
+  try {
+    const filename = req.params.filename;
+    const filePath = path.join(__dirname, "../public/podcasts", filename);
+
+    // Validate the file exists
+    try {
+      await fs.access(filePath);
+    } catch (err) {
+      console.error(`File not found: ${filePath}`, err);
+      return res.status(404).send("Audio file not found");
+    }
+
+    const stat = await fs.stat(filePath);
+    const fileSize = stat.size;
+
+    if (fileSize === 0) {
+      console.error(`Empty audio file: ${filePath}`);
+      return res.status(500).send("Invalid audio file (zero bytes)");
+    }
+
+    // Set proper headers for streaming media
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("Cache-Control", "no-cache, no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+
+    const range = req.headers.range;
+
+    if (range) {
+      // Parse range header
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+
+      // Handle invalid start position
+      if (isNaN(start) || start < 0 || start >= fileSize) {
+        console.warn(`Invalid range request for ${filename}: ${range}`);
+        return res.status(416).send("Range Not Satisfiable");
+      }
+
+      // Calculate end position
+      const end = parts[1]
+        ? Math.min(parseInt(parts[1], 10), fileSize - 1)
+        : fileSize - 1;
+      const chunkSize = end - start + 1;
+
+      // Log the range request
+      console.log(`Range request: ${start}-${end}/${fileSize} for ${filename}`);
+
+      // Set appropriate headers for partial content
+      res.status(206);
+      res.setHeader("Content-Range", `bytes ${start}-${end}/${fileSize}`);
+      res.setHeader("Content-Length", chunkSize);
+
+      // Create read stream with high watermark for better performance
+      const stream = fs.createReadStream(filePath, {
+        start,
+        end,
+        highWaterMark: 65536, // 64KB chunks for more efficient streaming
+      });
+
+      // Handle stream errors
+      stream.on("error", (err) => {
+        console.error(`Stream error for ${filename}:`, err);
+        if (!res.headersSent) {
+          res.status(500).send("Error streaming file");
+        } else {
+          res.end();
+        }
+      });
+
+      // Pipe the file stream to the response
+      stream.pipe(res);
+    } else {
+      // Full file request (no range)
+      console.log(`Serving complete file ${filename} (${fileSize} bytes)`);
+
+      res.setHeader("Content-Length", fileSize);
+
+      // Create read stream with improved buffer size
+      const stream = fs.createReadStream(filePath, {
+        highWaterMark: 65536, // 64KB buffer
+      });
+
+      // Handle stream errors
+      stream.on("error", (err) => {
+        console.error(`Stream error for ${filename}:`, err);
+        if (!res.headersSent) {
+          res.status(500).send("Error streaming file");
+        } else {
+          res.end();
+        }
+      });
+
+      // Pipe the file stream to the response
+      stream.pipe(res);
+    }
+  } catch (error) {
+    console.error(`Error streaming podcast ${req.params.filename}:`, error);
+    if (!res.headersSent) {
+      res.status(500).send("Server error while streaming audio");
+    } else {
+      res.end();
+    }
+  }
+});
+
+// Improve audio file combination (enhanced validation)
+app.post("/api/generate", apiLimiter, async (req, res) => {
+  // ...existing code...
+
+  // When combining audio files, add extra validation
+  console.log("Combining audio segments with validation...");
+  let combinedSuccess = false;
+  try {
+    combinedSuccess = await combineAudioFiles(audioSegments, combinedFile);
+
+    // Validate the generated MP3 file
+    const stats = await fs.stat(combinedFile);
+    if (stats.size < 1024) {
+      // File should be at least 1KB
+      console.error("Generated MP3 file is too small, possibly corrupt");
+      throw new Error("Audio generation failed - output file is too small");
+    }
+
+    console.log(
+      `Podcast generated successfully: ${combinedFile} (${stats.size} bytes)`
+    );
+  } catch (audioError) {
+    console.error("Failed to combine audio segments:", audioError);
+    return res.status(500).json({ error: "Failed to generate podcast audio" });
+  }
+
+  // ...existing code...
+});
+
+// Keep the existing fallback route for directory listing
+app.use(
+  "/podcasts",
+  express.static(path.join(__dirname, "../public/podcasts"))
+);
 
 // Start server
 app.listen(PORT, () => {
