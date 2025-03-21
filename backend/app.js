@@ -7,6 +7,7 @@ const axios = require("axios");
 const rateLimit = require("express-rate-limit");
 const { extractTextFromPdf } = require("./tessaractOCR");
 const { synthesizeSpeech } = require("./aws_polly_tts");
+const { analyzeScript } = require("./scriptEnhancer");
 require("dotenv").config();
 
 const app = express();
@@ -27,8 +28,13 @@ const apiLimiter = rateLimit({
 // Define fixed podcast duration (10-15 min range) hard cap concept
 const TARGET_PODCAST_DURATION = 12; // Target 12 minutes (middle of 10-15 range)
 
+// Constants for optimized processing
+const MAX_CONCURRENT_REQUESTS = 3; // Reduced from 5 to avoid rate limits
+const MIN_REQUEST_INTERVAL = 1500; // Increased from 1000ms to 1500ms
+const OPTIMAL_CHUNK_SIZE = 10000; // Increased from 6000 to 10000
+const MAX_CHUNK_COUNT = 12; // New constant to limit total chunks
+
 // Words per minute for speech calculation - adjusted for Kokoro TTS's actual speed
-// Previous value was 150, but logs showed 2785 words took 13 minutes (≈214 wpm)
 const WORDS_PER_MINUTE = 214; // Adjusted based on production data
 
 // Function to calculate target word count based on duration
@@ -157,12 +163,6 @@ function optimizeScriptForTTS(script) {
   return optimizedLines.join("\n");
 }
 
-// Add this near the top with other constants
-const MAX_CONCURRENT_REQUESTS = 3; // Reduced from 5 to avoid rate limits
-const MIN_REQUEST_INTERVAL = 1500; // Increased from 1000ms to 1500ms
-const OPTIMAL_CHUNK_SIZE = 10000; // Increased from 6000 to 10000
-const MAX_CHUNK_COUNT = 12; // New constant to limit total chunks
-
 // Improved splitTextIntoChunks function
 function splitTextIntoChunks(text) {
   // If text is very small, return it as is
@@ -253,7 +253,7 @@ function splitTextIntoChunks(text) {
   return chunks;
 }
 
-// Add this request queue manager
+// Request queue manager for rate limiting
 class RequestQueue {
   constructor(maxConcurrent = 5, minInterval = 1000) {
     this.queue = [];
@@ -318,15 +318,12 @@ async function processChunkWithGroq(
   // Allocate words more intelligently across chunks
   const baseWordsPerChunk = Math.floor(totalTargetWords / totalChunks);
 
-  // Improved word budget allocation:
-  // 1. Increased percentage boost for first and last chunks (15% instead of 10%)
-  // 2. Removed hard caps
-  // 3. Consider content density for middle chunks
+  // Improved word budget allocation
   let chunkWordCount;
   if (isFirstChunk) {
-    chunkWordCount = Math.floor(baseWordsPerChunk * 1.15); // 15% more for intro, no cap
+    chunkWordCount = Math.floor(baseWordsPerChunk * 1.15); // 15% more for intro
   } else if (isLastChunk) {
-    chunkWordCount = Math.floor(baseWordsPerChunk * 1.15); // 15% more for conclusion, no cap
+    chunkWordCount = Math.floor(baseWordsPerChunk * 1.15); // 15% more for conclusion
   } else {
     // Consider content density for middle chunks
     if (chunkNumber <= Math.ceil(totalChunks / 2)) {
@@ -341,20 +338,24 @@ async function processChunkWithGroq(
   const maxTokens = 10000;
 
   // Adjust system prompt based on chunk position
-  let systemPrompt = `You are the world's best podcast script creator. You transform written content into authentic, engaging conversations between two hosts (Host A and Host B) that sound EXACTLY like real podcasts.
+  let systemPrompt = `You are the world's best podcast script creator. You transform written content into authentic, engaging conversations between two hosts (Ashley and Ric) that sound EXACTLY like real podcasts.
 
-Your podcast scripts should:
-1. Be genuinely conversational - not scripted-sounding narration taking turns
-2. Include natural speech patterns with appropriate filler words ("um", "like", "you know") but use them sparingly
+Your podcast scripts must have these characteristics:
+1. Genuinely conversational with natural speech patterns, not scripted-sounding narration
+2. Include casual language with contractions, filler words ("um", "y'know", "like"), and slang (use sparingly)
 3. Feature hosts interrupting each other, finishing each other's sentences, and building on ideas
-4. Include emotional reactions with clear tone indicators ("Wow!" [excited], "That's fascinating!" [curious], "Wait, really?" [surprised])
-5. Have hosts ask each other questions to drive the conversation forward
-6. Include brief personal anecdotes or examples that relate to the content
-7. Have distinct personalities: Host A is more analytical and detail-oriented, Host B is more enthusiastic and asks clarifying questions
-8. Discuss important details from the source material, focusing on key points
-9. Include tangents and side discussions that naturally emerge from the content
-10. Feature moments of humor, surprise, or disagreement between hosts
-11. Use concise, clear sentences that are easy to speak aloud - avoid complex, run-on sentences
+4. Include emotional reactions with tone indicators ("Wow!" [excited], "Wait, really?" [surprised], "Hmm..." [thoughtful])
+5. Have hosts ask each other questions and respond authentically, not just taking turns making statements
+6. Include brief personal anecdotes that relate to the content ("This reminds me of when I...")
+7. Have distinct personalities: Ashley is more analytical and uses occasional jargon; Ric is more relatable and simplifies concepts
+8. Include moments where hosts respectfully disagree or offer different perspectives
+9. Use authentic back-channeling responses that show active listening ("right", "exactly", "oh wow")
+
+NEVER include:
+- References to "subscribing" or "following" the podcast
+- Mentions of "next episode" or "series"
+- Generic podcast language about "tune in next time"
+- Any indication this is part of a regular show
 
 EXTREMELY IMPORTANT: This is part ${chunkNumber}/${totalChunks} of a podcast script. Your chunk MUST be EXACTLY ${chunkWordCount} words. No more, no less.`;
 
@@ -363,36 +364,44 @@ EXTREMELY IMPORTANT: This is part ${chunkNumber}/${totalChunks} of a podcast scr
 
   if (isFirstChunk && isLastChunk) {
     // Single chunk - complete podcast
-    userPrompt = `Create a complete podcast script from the following PDF content. Your script must be a natural conversation between Host A and Host B that covers the most important points.
+    userPrompt = `Create a complete podcast script from the following PDF content. Your script must be a natural conversation between Ashley and Ric that covers the most important points.
 
-Include a proper introduction at the beginning and a conclusion at the end.
+Include an authentic introduction at the beginning and a content-focused conclusion at the end that offers final insights, NOT generic "subscribe and follow" language.
+
+Make the hosts sound like real people having a genuine conversation - include interruptions, casual language, brief tangents, and authentic reactions.
 
 IMPORTANT: Your script MUST be EXACTLY ${chunkWordCount} words. Focus only on the MOST important information and themes.
 
 PDF Content: ${chunk}`;
   } else if (isFirstChunk) {
     // First chunk - include introduction
-    userPrompt = `Create the first part of a podcast script from the following PDF content. Your script must be a natural conversation between Host A and Host B.
+    userPrompt = `Create the first part of a podcast script from the following PDF content. Your script must be a natural, authentic conversation between Ashley and Ric.
 
-Start with a proper introduction to the topic and the hosts. This is just the beginning of the podcast, so don't conclude the discussion.
+Start with a casual, engaging introduction where the hosts welcome listeners and introduce the topic in a conversational way. This is just the beginning of the podcast, so don't conclude the discussion.
+
+Make the hosts sound like real people - include filler words, casual language, and authentic reactions to each other.
 
 IMPORTANT: Your script MUST be EXACTLY ${chunkWordCount} words. Focus on setting up the topic and introducing key concepts from the beginning of the document.
 
 PDF Content (Beginning): ${chunk}`;
   } else if (isLastChunk) {
     // Last chunk - include conclusion
-    userPrompt = `Create the final part of a podcast script from the following PDF content. Your script must be a natural conversation between Host A and Host B.
+    userPrompt = `Create the final part of a podcast script from the following PDF content. Your script must be a natural conversation between Ashley and Ric.
 
-This is the FINAL part of the podcast, so include a proper conclusion that wraps up the entire discussion naturally and satisfyingly.
+This is the FINAL part of the podcast, so include a proper conclusion that wraps up the entire discussion naturally. Focus on content-specific insights and takeaways - DO NOT include generic "subscribe" language or references to "future episodes."
+
+End with thought-provoking comments or questions about the topic itself, not podcast promotion.
 
 IMPORTANT: Your script MUST be EXACTLY ${chunkWordCount} words. Focus on bringing the discussion to a natural conclusion that doesn't feel rushed or abrupt.
 
 PDF Content (Ending): ${chunk}`;
   } else {
     // Middle chunk - continue conversation
-    userPrompt = `Continue a podcast script from the following PDF content. Your script must be a natural conversation between Host A and Host B.
+    userPrompt = `Continue a podcast script from the following PDF content. Your script must be a natural conversation between Ashley and Ric.
 
 This is part ${chunkNumber} of ${totalChunks} of an ongoing podcast, so don't introduce the topic again or conclude the discussion.
+
+Maintain the conversational flow with interruptions, casual language, emotional reactions, and authentic dialogue. Have the hosts build on each other's points and occasionally challenge or question each other in a friendly way.
 
 IMPORTANT: Your script MUST be EXACTLY ${chunkWordCount} words. Focus only on the most important points in this section of content.
 
@@ -428,7 +437,7 @@ PDF Content (Middle Section): ${chunk}`;
             },
           ],
           temperature: 0.7,
-          max_tokens: maxTokens,
+          max_tokens: 10000,
           top_p: 0.9,
         },
         {
@@ -567,20 +576,45 @@ function trimScriptPreservingStructure(script, maxWordCount) {
     // Add a natural conclusion
     resultLines.push("");
     resultLines.push(
-      "Host A: Well, that brings us to the end of our discussion today. We covered a lot of ground on this fascinating topic."
+      "Ashley: Well, that brings us to the end of our discussion today. We covered a lot of ground on this fascinating topic."
     );
     resultLines.push(
-      "Host B: Absolutely! I really enjoyed our conversation. There's so much depth to this subject, and I feel like we've given our listeners a good overview of the key points."
+      "Ric: Absolutely! I really enjoyed our conversation. There's so much depth to this subject, and I feel like we've given our listeners a good overview of the key points."
     );
     resultLines.push(
-      "Host A: If you found this interesting, we encourage you to dive deeper into some of the concepts we covered today."
+      "Ashley: If you found this interesting, we encourage you to dive deeper into some of the concepts we covered today."
     );
     resultLines.push(
-      "Host B: Thanks for joining us, and we hope you'll tune in next time for more engaging discussions!"
+      "Ric: Thanks for joining us, and we hope you'll tune in next time for more engaging discussions!"
     );
   }
 
   return resultLines.join("\n");
+}
+
+// New function to replace Host A/B with Ashley/Ric in scripts
+function replaceHostNamesInScript(script) {
+  return script.replace(/Host A:/gi, "Ashley:").replace(/Host B:/gi, "Ric:");
+}
+
+// New function to remove script metadata (title, section markers) and start directly with host dialogue
+function cleanScriptMetadata(script) {
+  // Split the script into lines
+  const lines = script.split("\n");
+
+  // Find the first actual dialogue line (starting with "Ashley:" or "Ric:" or "Host A:" or "Host B:")
+  const firstDialogueIndex = lines.findIndex((line) =>
+    /^(Ashley|Ric|Host A|Host B):/i.test(line.trim())
+  );
+
+  // If we found a dialogue line, remove everything before it
+  if (firstDialogueIndex > 0) {
+    console.log(`Removing ${firstDialogueIndex} metadata lines from script`);
+    return lines.slice(firstDialogueIndex).join("\n");
+  }
+
+  // If no dialogue found, return the original script
+  return script;
 }
 
 // Fix the upload route
@@ -639,19 +673,44 @@ app.post("/api/generate", apiLimiter, async (req, res) => {
       console.log("Attempting to process entire PDF in one API call...");
 
       // System prompt for podcast creation
-      const systemPrompt = `You are the world's best podcast script creator. You transform written content into authentic, engaging conversations between two hosts (Host A and Host B).
+      const systemPrompt = `You are the world's best podcast script creator. You transform written content into authentic, engaging conversations between two hosts (Ashley and Ric).
 
-EXTREMELY IMPORTANT: The script MUST be EXACTLY ${targetWordCount} words to produce a ${TARGET_PODCAST_DURATION}-minute podcast. No more, no less.`;
+EXTREMELY IMPORTANT: The script MUST be EXACTLY ${targetWordCount} words to produce a ${TARGET_PODCAST_DURATION}-minute podcast. No more, no less.
+
+Create an authentic-sounding conversation with these characteristics:
+1. Natural speech patterns with occasional filler words ("um", "like", "y'know")
+2. Hosts interrupting each other or finishing each other's sentences
+3. Varied sentence lengths and structures - mix of short and long sentences
+4. Casual language with contractions, slang, and informal expressions
+5. Back-channeling responses ("right", "hmm", "exactly", "oh wow")
+6. Authentic reactions with emotional indicators ("That's wild!" [surprised], "No way..." [skeptical])
+7. Brief personal anecdotes or examples that relate to the topic
+8. Occasional disagreements or different perspectives between hosts
+9. Meta-commentary about the content ("This is such a fascinating topic")
+
+Host Personalities:
+- Ashley: More analytical, detail-oriented, asks thought-provoking questions, occasionally uses industry jargon
+- Ric: More relatable, provides real-world examples, asks clarifying questions, good at simplifying complex topics
+
+IMPORTANT: NEVER include:
+- References to "subscribing to our podcast"
+- Mentions of "future episodes" or "series"
+- Generic podcast outro language about "joining us next time"
+- Any indication that this is part of a regular show
+
+End with thoughtful content-specific conclusions, like highlighting key insights or posing thought-provoking questions about the topic itself.`;
 
       // User prompt for podcast creation
-      const userPrompt = `Create a podcast script from the following PDF content. The script should be a natural conversation between Host A and Host B that discusses the main points and important details from the content.
+      const userPrompt = `Create a podcast script from the following PDF content. The script should be a natural, casual conversation between Ashley and Ric that discusses the main points and important details from the content.
 
-Use concise sentences that are easy to speak naturally. Break up long, complex sentences into shorter ones.
+Your script should sound like a REAL conversation, not like hosts taking turns reading prepared statements.
 
 EXTREMELY IMPORTANT:
 1. Your script MUST be EXACTLY ${targetWordCount} words
-2. Include a proper introduction, detailed discussion, and natural conclusion
+2. Include an authentic introduction, detailed discussion, and content-focused conclusion
 3. Focus on the most important information from the source content
+4. End with thoughtful reflections or questions about the topic itself, NOT with "subscribe" or "tune in next time" language
+5. Make the conversation flow naturally with interruptions, tangents, and casual exchanges
 
 PDF Content: ${text}`;
 
@@ -846,13 +905,50 @@ PDF Content: ${text}`;
       console.log("Script generation completed successfully");
     }
 
+    // Analyze and enhance script
+    console.log("\n=== ANALYZING AND ENHANCING SCRIPT ===");
+    const scriptAnalysis = analyzeScript(completeScript);
+
+    if (scriptAnalysis.improvements.length > 0) {
+      console.log(
+        `Applied ${scriptAnalysis.improvements.length} improvements:`
+      );
+      scriptAnalysis.improvements.forEach((improvement) =>
+        console.log(`- ${improvement}`)
+      );
+      completeScript = scriptAnalysis.improvedScript;
+    } else {
+      console.log("No additional improvements needed");
+    }
+
+    // Script statistics
+    console.log(
+      `Host balance: Ashley (${scriptAnalysis.hostALines} lines), Ric (${scriptAnalysis.hostBLines} lines)`
+    );
+    console.log(
+      `Has conversational elements: ${
+        scriptAnalysis.hasConversationalElements ? "Yes" : "No"
+      }`
+    );
+    console.log(
+      `Has proper content-focused conclusion: ${
+        scriptAnalysis.hasProperConclusion ? "Yes" : "No"
+      }`
+    );
+
+    // Replace Host A/B with Ashley/Ric if needed
+    completeScript = replaceHostNamesInScript(completeScript);
+
+    // Clean script metadata to remove title and section markers
+    completeScript = cleanScriptMetadata(completeScript);
+
     // Optimize the script for TTS
     const optimizedScript = optimizeScriptForTTS(completeScript);
 
     // Generate audio using AWS Polly instead of voice_service.py
     console.log("Generating audio with AWS Polly TTS...");
 
-    // Parse the script to separate Host A and Host B lines
+    // Parse the script to separate Ashley and Ric lines
     const lines = optimizedScript.split("\n").filter((line) => line.trim());
     const audioSegments = [];
     const timestamp = Date.now();
@@ -868,8 +964,8 @@ PDF Content: ${text}`;
     const outputPath = path.join(outputDir, outputFilename);
 
     // Voice mapping for AWS Polly (neural voices)
-    const hostAVoice = "Joanna"; // Female voice for Host A (main host)
-    const hostBVoice = "Matthew"; // Male voice for Host B
+    const hostAVoice = "Joanna"; // Female voice for Ashley (main host)
+    const hostBVoice = "Matthew"; // Male voice for Ric
 
     // Process each line with the appropriate voice
     for (let i = 0; i < lines.length; i++) {
@@ -879,22 +975,22 @@ PDF Content: ${text}`;
       // Extract speaker and text - FIX: Only split at the first colon when it follows a host pattern
       let speaker, text;
 
-      // Improved regex to detect speaker prefixes like "Host A:" or "Host B:"
+      // Improved regex to detect speaker prefixes like "Ashley:" or "Ric:"
       const speakerMatch = line.match(/^([^:]+?):\s*(.*)/);
 
       if (speakerMatch) {
         speaker = speakerMatch[1].trim();
         text = speakerMatch[2].trim();
       } else {
-        speaker = i % 2 === 0 ? "Host A" : "Host B";
+        speaker = i % 2 === 0 ? "Ashley" : "Ric";
         text = line.trim();
       }
 
       // Debug the speaker extraction
       console.log(`DEBUG: Extracted speaker: "${speaker}"`);
 
-      // Determine which voice to use - FIX THE REGEX TO PROPERLY DETECT HOST A
-      const isHostA = /host\s*a/i.test(speaker); // Case-insensitive, more flexible matching
+      // Determine which voice to use
+      const isHostA = /ashley/i.test(speaker) || /host\s*a/i.test(speaker); // Match both Ashley and Host A
       const voice = isHostA ? hostAVoice : hostBVoice;
 
       // Log the voice assignment
@@ -1101,41 +1197,6 @@ app.get("/podcasts/:filename", async (req, res) => {
     }
   }
 });
-
-// Improve audio file combination (enhanced validation)
-app.post("/api/generate", apiLimiter, async (req, res) => {
-  // ...existing code...
-
-  // When combining audio files, add extra validation
-  console.log("Combining audio segments with validation...");
-  let combinedSuccess = false;
-  try {
-    combinedSuccess = await combineAudioFiles(audioSegments, combinedFile);
-
-    // Validate the generated MP3 file
-    const stats = await fs.stat(combinedFile);
-    if (stats.size < 1024) {
-      // File should be at least 1KB
-      console.error("Generated MP3 file is too small, possibly corrupt");
-      throw new Error("Audio generation failed - output file is too small");
-    }
-
-    console.log(
-      `Podcast generated successfully: ${combinedFile} (${stats.size} bytes)`
-    );
-  } catch (audioError) {
-    console.error("Failed to combine audio segments:", audioError);
-    return res.status(500).json({ error: "Failed to generate podcast audio" });
-  }
-
-  // ...existing code...
-});
-
-// Keep the existing fallback route for directory listing
-app.use(
-  "/podcasts",
-  express.static(path.join(__dirname, "../public/podcasts"))
-);
 
 // Start server
 app.listen(PORT, () => {
