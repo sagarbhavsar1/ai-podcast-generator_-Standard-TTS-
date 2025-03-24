@@ -151,10 +151,20 @@ function optimizeScriptForTTS(script) {
       text = sentences.join(" ");
     }
 
-    // Add pauses at natural breaks
-    text = text.replace(/\. /g, ". [pause] ");
-    text = text.replace(/\! /g, "! [pause] ");
-    text = text.replace(/\? /g, "? [pause] ");
+    // Add pauses at natural breaks with context-specific pause lengths
+    text = text.replace(/\. /g, ". [pause] "); // End of statement
+    text = text.replace(/\! /g, "! [longpause] "); // Emotional emphasis
+    text = text.replace(/\? /g, "? [longpause] "); // Question pause
+
+    // Add mid-sentence pauses with shorter duration
+    text = text.replace(/, /g, ", [shortpause] "); // Comma pause
+    text = text.replace(/; /g, "; [mediumpause] "); // Semicolon pause
+
+    // Add pauses for rhetorical effect
+    text = text.replace(/\.\.\. /g, "... [longerpause] "); // Ellipsis for dramatic effect
+
+    // Add natural hesitation patterns
+    text = text.replace(/(\b(?:well|um|uh|so)\b)( )/gi, "$1 [tinypause] ");
 
     // Add the optimized line
     optimizedLines.push(`${speaker}: ${text}`);
@@ -597,7 +607,7 @@ function replaceHostNamesInScript(script) {
   return script.replace(/Host A:/gi, "Ashley:").replace(/Host B:/gi, "Ric:");
 }
 
-// New function to remove script metadata (title, section markers) and start directly with host dialogue
+// Original function to remove script metadata (title, section markers) and start directly with host dialogue
 function cleanScriptMetadata(script) {
   // Split the script into lines
   const lines = script.split("\n");
