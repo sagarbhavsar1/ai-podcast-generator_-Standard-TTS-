@@ -70,7 +70,7 @@ async function synthesizeSpeech(text, voice, outputFile, engine = "neural") {
   }
 }
 
-// Remove speech markers and clean up text
+// Remove speech markers and clean up text - reverting to original version
 function cleanupTextForSpeech(text) {
   // Remove stage directions
   text = text.replace(/\[.*?\]/g, "");

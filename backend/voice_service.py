@@ -727,6 +727,15 @@ def process_single_line(i, speaker, text, voice, tts_service_url, output_file):
         text = text[:197] + "..."
         log("INFO", f"Text for line {i+1} truncated to 200 chars")
 
+    # Add natural speed variations based on line content
+    speed_adjustment = 1.0
+    if "?" in text:
+        speed_adjustment = random.uniform(0.95, 1.0)  # Slightly slower for questions
+    elif re.search(r'(?:excited|wow|amazing|incredible)', text, re.IGNORECASE):
+        speed_adjustment = random.uniform(1.02, 1.08)  # Faster for excitement
+    elif re.search(r'(?:hmm|thoughtful|let me think)', text, re.IGNORECASE):
+        speed_adjustment = random.uniform(0.92, 0.98)  # Slower for thoughtfulness
+
     while retry_count < MAX_RETRIES and not success:
         try:
             # Call the Kokoro API with updated parameters according to the API docs
@@ -736,7 +745,7 @@ def process_single_line(i, speaker, text, voice, tts_service_url, output_file):
                     "model": "kokoro",
                     "input": text,
                     "voice": voice,
-                    "speed": random.uniform(0.97, 1.03),  # Slight speed variation for naturalness
+                    "speed": speed_adjustment, # Use contextual speed variation
                     "response_format": "mp3",  # Explicitly set format
                     "stream": False  # Make sure streaming is disabled for our use case
                 },
@@ -848,20 +857,49 @@ def try_local_tts_fallback(i, text, output_file):
 def add_pause_after_line(text, i):
     """Add a pause after a line based on punctuation"""
     sample_rate = 24000
-    if "[pause]" in text or re.search(r'[.!?]', text):
-        pause_file = f"../temp/pause_{i}.wav"
 
-        # Determine pause length based on punctuation
-        if "." in text:
-            pause_length = 0.6
-        elif "!" in text or "?" in text:
-            pause_length = 0.7
-        else:
-            pause_length = 0.4  # Default pause
+    # Detect pause markers and punctuation
+    if "[pause]" in text:
+        pause_length = 0.6  # Standard pause
+    elif "[shortpause]" in text:
+        pause_length = 0.3  # Shorter pause for commas
+    elif "[mediumpause]" in text:
+        pause_length = 0.5  # Medium pause for semicolons
+    elif "[longpause]" in text:
+        pause_length = 0.7  # Longer pause for questions/exclamations
+    elif "[longerpause]" in text:
+        pause_length = 1.0  # Dramatic pause for ellipses
+    elif "[tinypause]" in text:
+        pause_length = 0.2  # Tiny pause for hesitations
+    # Fallback to punctuation-based detection if no markers
+    elif "?" in text:
+        pause_length = 0.7  # Question mark
+    elif "!" in text:
+        pause_length = 0.7  # Exclamation mark
+    elif "..." in text:
+        pause_length = 0.9  # Ellipsis
+    elif "." in text:
+        pause_length = 0.6  # Period
+    elif ";" in text:
+        pause_length = 0.5  # Semicolon
+    elif "," in text:
+        pause_length = 0.3  # Comma
+    else:
+        pause_length = 0.4  # Default pause
 
-        add_pause(pause_file, pause_length)
-        return pause_file
-    return None
+    # Create rhetorical pauses after certain phrases
+    if re.search(r'(?:think about that|consider this|let that sink in)', text, re.IGNORECASE):
+        pause_length = 0.8  # Longer pause for rhetorical effect
+
+    # Detect emotional content and adjust pauses
+    if re.search(r'\[excited\]|\[enthusiastic\]', text, re.IGNORECASE):
+        pause_length *= 0.8  # Shorter pauses for excited speech
+    elif re.search(r'\[thoughtful\]|\[reflective\]', text, re.IGNORECASE):
+        pause_length *= 1.2  # Longer pauses for thoughtful speech
+
+    pause_file = f"../temp/pause_{i}.wav"
+    add_pause(pause_file, pause_length)
+    return pause_file
 
 def add_pause(filename, pause_length):
     """Create a pause audio file"""
