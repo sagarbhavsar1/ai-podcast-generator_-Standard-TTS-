@@ -1,3 +1,26 @@
+/* General reset and base styles */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: #3a3a3a;
+  background-color: #effdf4; /* Updated to requested light green background */
+  line-height: 1.5;
+}
+
+.app-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
 /* Main container styling */
 .container {
   max-width: 1200px;
@@ -56,22 +79,22 @@ h3 {
 }
 
 .btn-primary {
-  background-color: #0d6efd;
-  border-color: #0d6efd;
+  background-color: #2e8b57; /* Changed to sea green */
+  border-color: #2e8b57;
 }
 
 .btn-primary:hover {
-  background-color: #0b5ed7;
-  border-color: #0a58ca;
+  background-color: #1e6e3e; /* Darker green on hover */
+  border-color: #1e6e3e;
 }
 
 .btn-outline-primary {
-  color: #0d6efd;
-  border-color: #0d6efd;
+  color: #2e8b57; /* Changed to sea green */
+  border-color: #2e8b57;
 }
 
 .btn-outline-primary:hover {
-  background-color: #0d6efd;
+  background-color: #2e8b57;
   color: white;
 }
 
@@ -84,7 +107,7 @@ h3 {
 }
 
 .progress-bar {
-  background-color: #0d6efd;
+  background-color: #2e8b57; /* Changed to sea green */
   border-radius: 6px;
 }
 
@@ -170,4 +193,540 @@ audio {
   background-color: #f5f5f5;
   cursor: not-allowed;
 }
-/* Removed duplicate podcast-length-selector styles */
+
+/* Header styles */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem 2rem;
+  background-color: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+}
+
+.logo {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: #2e8b57; /* Changed to sea green */
+  letter-spacing: -0.5px;
+}
+
+.nav-links {
+  display: flex;
+  gap: 2rem;
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+.nav-link {
+  color: #2e8b57;
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 1rem;
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.nav-link:hover {
+  color: #1e6e3e;
+  transform: translateY(-1px);
+}
+
+.github-link {
+  font-size: 1.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Hero section styles */
+.hero-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 3rem 1rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.main-heading {
+  font-size: 3rem;
+  font-weight: 800;
+  margin-bottom: 2rem;
+  color: #1a1a1a;
+  letter-spacing: -1px;
+  line-height: 1.2;
+}
+
+.get-started-btn {
+  background-color: #2e8b57; /* Changed to sea green */
+  color: white;
+  border: none;
+  padding: 0.75rem 2rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.1s;
+  margin-bottom: 3rem;
+}
+
+.get-started-btn:hover {
+  background-color: #1e6e3e; /* Darker green on hover */
+  transform: translateY(-2px);
+}
+
+.get-started-btn:active {
+  transform: translateY(0);
+}
+
+/* Process diagram styles */
+.process-diagram {
+  width: 100%;
+  max-width: 900px;
+  margin: 2rem auto 4rem;
+}
+
+.diagram-image {
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
+}
+
+/* Upload section styles */
+.upload-section {
+  background-color: white;
+  border-radius: 12px;
+  padding: 2rem;
+  max-width: 800px;
+  margin: 0 auto 3rem;
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.05);
+  border: 1px solid #9caf88; /* Added subtle border with sage green */
+}
+
+.upload-container h2 {
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+
+/* Upload area styles - Update to make Browse button more prominent */
+.upload-area {
+  border: 2px dashed #9caf88;
+  border-radius: 8px;
+  padding: 2.5rem 2rem;
+  text-align: center;
+  transition: border-color 0.2s, background-color 0.2s;
+  margin-bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.upload-area.active {
+  border-color: #2e8b57;
+  background-color: rgba(46, 139, 87, 0.05);
+}
+
+.upload-area:hover {
+  border-color: #2e8b57;
+}
+
+.upload-icon {
+  font-size: 3rem;
+  color: #2e8b57; /* Changed to sea green */
+  margin-bottom: 1rem;
+}
+
+.file-input {
+  display: none;
+}
+
+.browse-text {
+  color: #2e8b57; /* Changed to sea green */
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.file-size-note {
+  color: #888;
+  font-size: 0.9rem;
+  margin-top: 0.5rem;
+}
+
+.selected-file {
+  margin-top: 1rem;
+  font-weight: 500;
+  color: #2e8b57; /* Changed to sea green */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+/* Add styling for the remove file button */
+.remove-file-btn {
+  background-color: transparent;
+  border: none;
+  color: #e74c3c;
+  cursor: pointer;
+  font-size: 1.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  transition: all 0.2s;
+  padding: 0;
+}
+
+.remove-file-btn:hover {
+  background-color: rgba(231, 76, 60, 0.1);
+  transform: scale(1.1);
+}
+
+.remove-file-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* File info container to group filename and remove button */
+.file-info-container {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: #f0f9f2; /* Light green background */
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: 1px solid #c5e1d1;
+}
+
+.selected-file {
+  margin-top: 1rem;
+  font-weight: 500;
+  color: #2e8b57; /* Changed to sea green */
+}
+
+.error-message {
+  color: #dc3545;
+  margin-bottom: 1rem;
+  text-align: center;
+}
+
+.upload-button {
+  display: block;
+  width: 100%;
+  background-color: #2e8b57; /* Changed to sea green */
+  color: white;
+  border: none;
+  padding: 0.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.upload-button:disabled {
+  background-color: #a0aec0;
+  cursor: not-allowed;
+}
+
+.upload-button:hover:not(:disabled) {
+  background-color: #1e6e3e; /* Darker green on hover */
+}
+
+/* Add explicit browse button styling */
+.browse-button {
+  background-color: #2e8b57; /* Changed to sea green */
+  color: white;
+  border: none;
+  padding: 0.75rem 2rem;
+  margin-top: 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  display: inline-block;
+}
+
+.browse-button:hover {
+  background-color: #1e6e3e; /* Darker green on hover */
+}
+
+/* Updated browse button styling to be more prominent */
+.browse-button {
+  background-color: #2e8b57;
+  color: white;
+  border: none;
+  padding: 0.75rem 2rem;
+  margin: 1.5rem 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  box-shadow: 0 2px 6px rgba(46, 139, 87, 0.25);
+}
+
+.browse-button:hover {
+  background-color: #1e6e3e;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(46, 139, 87, 0.3);
+}
+
+.browse-button:active {
+  transform: translateY(0);
+}
+
+/* Add icon to browse button */
+.browse-button-icon {
+  font-size: 1.2rem;
+}
+
+/* Separator for "or" text */
+.upload-separator {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin: 1rem 0;
+}
+
+.upload-separator::before,
+.upload-separator::after {
+  content: "";
+  flex: 1;
+  border-bottom: 1px solid #ddd;
+}
+
+.upload-separator span {
+  padding: 0 1rem;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+/* Processing container styles */
+.processing-container {
+  text-align: center;
+  padding: 2rem 0;
+}
+
+.processing-container h2 {
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin-bottom: 2rem;
+}
+
+.progress-section {
+  margin: 2rem 0;
+}
+
+.progress-bar-container {
+  height: 10px;
+  background-color: #e9ecef;
+  border-radius: 5px;
+  margin: 1rem 0;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  background-color: #4a6cf7;
+  border-radius: 5px;
+  transition: width 0.3s ease;
+}
+
+.progress-percentage {
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.loading-icon {
+  margin: 2rem 0;
+}
+
+.spinner {
+  font-size: 2rem;
+  color: #2e8b57; /* Changed to sea green */
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.processing-info {
+  font-size: 0.95rem;
+  color: #666;
+  max-width: 80%;
+  margin: 0 auto;
+}
+
+/* Podcast player styles */
+.podcast-player {
+  padding: 1rem 0;
+}
+
+.podcast-player h2 {
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin-bottom: 2rem;
+  text-align: center;
+}
+
+.audio-player-container {
+  margin: 2rem 0;
+}
+
+.audio-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.play-pause-btn {
+  background-color: #2e8b57; /* Changed to sea green */
+  color: white;
+  width: 48px;
+  height: 48px;
+  border: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1.2rem;
+  transition: background-color 0.2s;
+}
+
+.play-pause-btn:hover {
+  background-color: #1e6e3e; /* Darker green on hover */
+}
+
+.audio-controls audio {
+  flex: 1;
+  height: 40px;
+}
+
+.download-section {
+  margin: 2rem 0;
+  text-align: center;
+}
+
+.download-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: #2e8b57; /* Changed to sea green */
+  color: white;
+  text-decoration: none;
+  padding: 0.75rem 2rem;
+  border-radius: 8px;
+  font-weight: 600;
+  transition: background-color 0.2s;
+}
+
+.download-btn:hover {
+  background-color: #1e6e3e; /* Darker green on hover */
+}
+
+/* Hide the script container as requested */
+.script-container {
+  display: none; /* Hide the script to preserve the surprise */
+}
+
+.script-content {
+  background-color: #f8f9fa;
+  padding: 1.5rem;
+  border-radius: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid #eee;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.script-content p {
+  margin-bottom: 0.75rem;
+}
+
+/* Remove the new-podcast-btn styling since we're not going to use it */
+.new-podcast-btn {
+  display: none; /* Hide the button instead of removing the CSS completely */
+}
+
+/* Footer styles */
+.footer {
+  margin-top: auto;
+  padding: 1.5rem;
+  text-align: center;
+  color: #4a4a4a;
+  background-color: #dff0e2; /* Lighter green for footer */
+  font-size: 0.9rem;
+  border-top: 1px solid #9caf88; /* Sage green border */
+}
+
+/* Responsive styles */
+@media (max-width: 768px) {
+  .main-heading {
+    font-size: 2.2rem;
+  }
+
+  .upload-section {
+    padding: 1.5rem;
+  }
+
+  .audio-controls {
+    flex-direction: column;
+  }
+
+  .audio-controls audio {
+    width: 100%;
+  }
+
+  .nav-links {
+    gap: 1rem;
+  }
+
+  .nav-link {
+    font-size: 0.9rem;
+  }
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+  .container {
+    padding: 1rem;
+  }
+
+  /* Adjust form elements for mobile */
+  input,
+  textarea,
+  button {
+    width: 100%;
+  }
+
+  /* Make sure content doesn't overflow */
+  .content {
+    overflow-wrap: break-word;
+  }
+}
