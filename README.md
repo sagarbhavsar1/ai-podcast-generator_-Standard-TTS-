@@ -408,7 +408,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - **Project Link**: [https://github.com/yourusername/ai-podcast-generator](https://github.com/yourusername/ai-podcast-generator)
 - **Issues**: Please report bugs through the GitHub issues page
-- **Questions**: Use GitHub Discussions for questions and feature requests
+- **Questions**: Get in touch with the developer: https://sagarbhavsar.carrd.co/
 
 ---
 
