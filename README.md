@@ -381,9 +381,6 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 Please ensure your code follows the project's coding standards and includes appropriate tests.
 
-## 📜 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgements
 
@@ -413,3 +410,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 Made with ❤️ by Sagar Bhavsar
+
+
+## 📜 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
