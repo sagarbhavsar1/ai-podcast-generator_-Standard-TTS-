@@ -209,6 +209,14 @@ audio {
   font-weight: 700;
   color: #2e8b57; /* Changed to sea green */
   letter-spacing: -0.5px;
+  display: flex;
+  align-items: center;
+}
+
+.logo-image {
+  height: 30px;
+  margin-right: 8px;
+  vertical-align: middle;
 }
 
 .nav-links {
@@ -728,5 +736,104 @@ audio {
   /* Make sure content doesn't overflow */
   .content {
     overflow-wrap: break-word;
+  }
+}
+
+/* Why PDFCast Section Styles */
+.why-pdfcast-section {
+  padding: 3rem 1rem;
+  background-color: #effdf4; /* Updated to requested light mint green */
+  border-radius: 8px;
+  margin: 2rem auto;
+  max-width: 1200px;
+}
+
+.why-pdfcast-container {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.why-pdfcast-title {
+  text-align: center;
+  font-size: 2rem;
+  color: #5d4037; /* Updated to earthy dark brown */
+  margin-bottom: 2.5rem;
+  position: relative;
+}
+
+.why-pdfcast-title:after {
+  content: "";
+  position: absolute;
+  bottom: -10px;
+  left: 50%;
+  width: 80px;
+  height: 4px;
+  background: #5d4037; /* Updated to earthy dark brown */
+  transform: translateX(-50%);
+  border-radius: 2px;
+}
+
+.feature-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 2rem;
+  margin-top: 1rem;
+}
+
+.feature-card {
+  background: white;
+  border-radius: 10px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.feature-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+}
+
+.feature-icon {
+  font-size: 2rem;
+  color: #5d4037; /* Updated to earthy dark brown */
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(
+    93,
+    64,
+    55,
+    0.1
+  ); /* Updated to light brown with transparency */
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  margin: 0 auto 1rem;
+}
+
+.feature-card h3 {
+  font-size: 1.25rem;
+  margin-bottom: 0.75rem;
+  color: #1d2144;
+  text-align: center;
+}
+
+.feature-card p {
+  color: #64748b;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  text-align: center;
+}
+
+/* Make it responsive */
+@media (max-width: 768px) {
+  .feature-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .why-pdfcast-section {
+    padding: 2rem 1rem;
   }
 }

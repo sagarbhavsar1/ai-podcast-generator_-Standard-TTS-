@@ -8,6 +8,10 @@ import {
   FaPlay,
   FaPause,
   FaGithub,
+  FaFileAlt,
+  FaClock,
+  FaHeadphones,
+  FaAccessibleIcon,
 } from "react-icons/fa";
 
 function App() {
@@ -256,7 +260,16 @@ function App() {
           justifyContent: "space-between",
         }}
       >
-        <div className="logo" style={{ marginLeft: "10px" }}>
+        <div
+          className="logo"
+          style={{ marginLeft: "10px", display: "flex", alignItems: "center" }}
+        >
+          <img
+            src={process.env.PUBLIC_URL + "/images/logo.png"}
+            alt="PDFcast Logo"
+            className="logo-image"
+            style={{ height: "30px", marginRight: "8px" }}
+          />
           PDFCast
         </div>
         <nav className="nav-links" style={{ marginRight: "10px" }}>
@@ -511,6 +524,61 @@ function App() {
               )}
 
               {error && <p className="error-message">{error}</p>}
+            </section>
+
+            {/* Why PDFCast section - fixed structure */}
+            <section className="why-pdfcast-section">
+              <div className="why-pdfcast-container">
+                <h2 className="why-pdfcast-title">Why PDFcast?</h2>
+
+                <div className="feature-cards">
+                  <div className="feature-card">
+                    <div className="feature-icon">
+                      <FaFileAlt />
+                    </div>
+                    <h3>Any PDF Becomes a Podcast</h3>
+                    <p>
+                      Transform documents up to 50MB into engaging
+                      conversations. Research papers, articles, reports, class
+                      readings? PDFcast's got you covered.
+                    </p>
+                  </div>
+
+                  <div className="feature-card">
+                    <div className="feature-icon">
+                      <FaClock />
+                    </div>
+                    <h3>Save Time</h3>
+                    <p>
+                      Listen to your content on the go. Save time by
+                      multitasking 😎
+                    </p>
+                  </div>
+
+                  <div className="feature-card">
+                    <div className="feature-icon">
+                      <FaHeadphones />
+                    </div>
+                    <h3>Natural Conversations</h3>
+                    <p>
+                      PDFcast creates dynamic dialogues between two distinct
+                      hosts, breaking down complex concepts in an entertaining
+                      way.
+                    </p>
+                  </div>
+
+                  <div className="feature-card">
+                    <div className="feature-icon">
+                      <FaAccessibleIcon />
+                    </div>
+                    <h3>Enhanced Accessibility</h3>
+                    <p>
+                      Make your content accessible to those with visual
+                      impairments or reading difficulties.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </section>
           </>
         )}
