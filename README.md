@@ -26,6 +26,32 @@ Perfect for turning research papers, reports, articles, or any text document int
 - 🔄 **Batch Processing**: Queue multiple documents for back-to-back processing
 - 🔒 **Privacy-Focused**: All processing happens on secure servers with no data retention
 
+## 💰 AWS Polly Usage & Cost Management
+
+### Free Tier Limits
+
+PDFCast uses AWS Polly for text-to-speech synthesis with different voice engines offering varying quality levels and free tier limits:
+
+- **Standard Voices**: 5 million free characters per month
+- **Neural Voices**: 1 million free characters per month
+- **Generative Voices**: 100,000 free characters per month
+
+After exceeding these limits, charges apply at the following rates:
+
+- Standard: $4.00 per million characters
+- Neural: $16.00 per million characters
+- Generative: $24.00 per million characters
+
+### Budget Controls
+
+To prevent unexpected costs, we implement AWS Budget controls:
+
+1. **Budget Alert**: A $0.50 monthly budget threshold is set for AWS Polly usage
+2. **Automated Actions**: When usage reaches $0.50, an AWS IAM policy automatically restricts further Polly access
+3. **Monthly Reset**: The budget and access controls reset at the beginning of each month
+
+These measures ensure the application remains cost-effective while providing high-quality audio output.
+
 ## 🛠️ Technology Stack
 
 ### Frontend
@@ -381,7 +407,6 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 Please ensure your code follows the project's coding standards and includes appropriate tests.
 
-
 ## 🙏 Acknowledgements
 
 - [AWS Polly](https://aws.amazon.com/polly/) for neural text-to-speech capabilities
@@ -410,7 +435,6 @@ Please ensure your code follows the project's coding standards and includes appr
 ---
 
 Made with ❤️ by Sagar Bhavsar
-
 
 ## 📜 License
 
