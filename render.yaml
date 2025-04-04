@@ -1,11 +1,15 @@
 services:
   - type: web
-    name: ai-podcast-generator
+    name: pdfcast-app
     env: node
-    buildCommand: cd backend && npm install
-    startCommand: cd backend && npm start
+    buildCommand: npm install && cd frontend && npm install && npm run build && cd ..
+    startCommand: npm start
     envVars:
-      - key: GROQ_API_KEY
-        sync: false
+      - key: NODE_ENV
+        value: production
       - key: PORT
-        value: 3000
+        value: 10000
+    disk:
+      name: podcast-storage
+      mountPath: /public/podcasts
+      sizeGB: 1
