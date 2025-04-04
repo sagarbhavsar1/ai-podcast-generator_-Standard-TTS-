@@ -19,7 +19,7 @@ function configureAWS() {
  * @param {string} voice - The Polly voice ID (e.g., 'Joanna', 'Matthew')
  * @param {string} outputFile - Path to save the audio file
  * @param {string} [engine="neural"] - The engine type ('standard', 'neural', or 'generative')
- * @returns {Promise<boolean>} - Success/failure
+ * @returns {Promise<boolean|object>} - Success/failure or structured error object
  */
 async function synthesizeSpeech(text, voice, outputFile, engine = "neural") {
   try {
@@ -65,6 +65,18 @@ async function synthesizeSpeech(text, voice, outputFile, engine = "neural") {
     console.log(`Successfully synthesized speech to ${outputFile}`);
     return true;
   } catch (error) {
+    // Check if this is an access denied error (budget exceeded)
+    if (error.code === "AccessDeniedException") {
+      console.error(
+        `Budget limit exceeded for ${engine} engine. AWS Polly access has been restricted.`
+      );
+      return {
+        success: false,
+        error: "budget_exceeded",
+        message: `Monthly budget for ${engine} TTS has been reached. Service will resume next month.`,
+      };
+    }
+
     console.error(`Error synthesizing speech: ${error.message}`);
     return false;
   }

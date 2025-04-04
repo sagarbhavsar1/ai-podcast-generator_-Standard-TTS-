@@ -1011,9 +1011,10 @@ PDF Content: ${text}`;
       console.log(`Processing line ${i + 1}/${lines.length} with ${voice}...`);
 
       // Use AWS Polly to synthesize speech
-      const success = await synthesizeSpeech(text, voice, tempFile, "standard");
+      const result = await synthesizeSpeech(text, voice, tempFile, "standard");
 
-      if (success) {
+      // Improved error handling for budget exceeded scenario
+      if (result === true) {
         audioSegments.push(tempFile);
 
         // Add a pause after each line
@@ -1034,6 +1035,15 @@ PDF Content: ${text}`;
           await createSilence(pauseFile, pauseLength);
           audioSegments.push(pauseFile);
         }
+      } else if (result && result.error === "budget_exceeded") {
+        console.error(`Budget exceeded: ${result.message}`);
+        // Return a proper error response to the client
+        return res.status(403).json({
+          error: "budget_exceeded",
+          message:
+            result.message ||
+            "Monthly TTS budget limit has been reached. Service will resume next month.",
+        });
       } else {
         console.error(`Failed to generate audio for line ${i + 1}`);
       }
