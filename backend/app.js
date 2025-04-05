@@ -1017,10 +1017,183 @@ PDF Content: ${text}`;
       }
     } catch (error) {
       console.error("Error processing PDF:", error.message);
-      // ...existing fallback code...
+      throw error;
     }
 
-    // ...existing code for enhancement, TTS generation, etc...
+    // Analyze and enhance script
+    console.log("\n=== ANALYZING AND ENHANCING SCRIPT ===");
+    let scriptAnalysis = analyzeScript(completeScript);
+
+    if (scriptAnalysis.improvements.length > 0) {
+      console.log(
+        `Applied ${scriptAnalysis.improvements.length} improvements:`
+      );
+      scriptAnalysis.improvements.forEach((improvement) =>
+        console.log(`- ${improvement}`)
+      );
+      completeScript = scriptAnalysis.improvedScript;
+    } else {
+      console.log("No additional improvements needed");
+    }
+
+    // Script statistics
+    console.log(
+      `Host balance: Ashley (${scriptAnalysis.hostALines} lines), Ric (${scriptAnalysis.hostBLines} lines)`
+    );
+    console.log(
+      `Has conversational elements: ${
+        scriptAnalysis.hasConversationalElements ? "Yes" : "No"
+      }`
+    );
+    console.log(
+      `Has proper content-focused conclusion: ${
+        scriptAnalysis.hasProperConclusion ? "Yes" : "No"
+      }`
+    );
+
+    // Replace Host A/B with Ashley/Ric if needed
+    completeScript = replaceHostNamesInScript(completeScript);
+
+    // Clean script metadata to remove title and section markers
+    completeScript = cleanScriptMetadata(completeScript);
+
+    // Optimize the script for TTS
+    const optimizedScript = optimizeScriptForTTS(completeScript);
+
+    // Generate audio using AWS Polly instead of voice_service.py
+    console.log("Generating audio with AWS Polly TTS...");
+    console.log(
+      "Using AWS credentials:",
+      process.env.AWS_ACCESS_KEY_ID ? "Key is set" : "⚠️ KEY MISSING"
+    );
+
+    // Parse the script to separate Ashley and Ric lines
+    const lines = optimizedScript.split("\n").filter((line) => line.trim());
+    const audioSegments = [];
+    const timestamp = Date.now();
+    const tempDir = config.TEMP_DIR;
+    const outputDir = config.OUTPUT_DIR;
+
+    // Ensure directories exist
+    await fs.ensureDir(tempDir);
+    await fs.ensureDir(outputDir);
+
+    // Change extension from .wav to .mp3 to match AWS Polly output format
+    const outputFilename = `podcast_${timestamp}.mp3`;
+    const outputPath = path.join(outputDir, outputFilename);
+
+    // Voice mapping for AWS Polly (neural voices)
+    const hostAVoice = "Joanna"; // Female voice for Ashley (main host)
+    const hostBVoice = "Matthew"; // Male voice for Ric
+
+    // Process each line with the appropriate voice
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.trim()) continue;
+
+      // Extract speaker and text - FIX: Only split at the first colon when it follows a host pattern
+      let speaker, text;
+
+      // Improved regex to detect speaker prefixes like "Ashley:" or "Ric:"
+      const speakerMatch = line.match(/^([^:]+?):\s*(.*)/);
+
+      if (speakerMatch) {
+        speaker = speakerMatch[1].trim();
+        text = speakerMatch[2].trim();
+      } else {
+        speaker = i % 2 === 0 ? "Ashley" : "Ric";
+        text = line.trim();
+      }
+
+      // Debug the speaker extraction
+      console.log(`DEBUG: Extracted speaker: "${speaker}"`);
+
+      // Determine which voice to use
+      const isHostA = /ashley/i.test(speaker) || /host\s*a/i.test(speaker); // Match both Ashley and Host A
+      const voice = isHostA ? hostAVoice : hostBVoice;
+
+      // Log the voice assignment
+      console.log(`DEBUG: Assigned voice: ${voice} for speaker: ${speaker}`);
+
+      // Generate the audio for this line
+      const tempFile = path.join(tempDir, `line_${i}.mp3`);
+      console.log(`Processing line ${i + 1}/${lines.length} with ${voice}...`);
+
+      // Use AWS Polly to synthesize speech
+      const result = await synthesizeSpeech(text, voice, tempFile, "standard");
+
+      // Improved error handling for budget exceeded scenario
+      if (result === true) {
+        audioSegments.push(tempFile);
+
+        // Add a pause after each line
+        if (
+          text.endsWith(".") ||
+          text.endsWith("!") ||
+          text.endsWith("?") ||
+          text.includes("[pause]")
+        ) {
+          const pauseLength = text.endsWith(".")
+            ? 0.6
+            : text.endsWith("!") || text.endsWith("?")
+            ? 0.7
+            : 0.4;
+          const pauseFile = path.join(tempDir, `pause_${i}.mp3`);
+
+          // Create a silent MP3 file for the pause
+          await createSilence(pauseFile, pauseLength);
+          audioSegments.push(pauseFile);
+        }
+      } else if (result && result.error === "budget_exceeded") {
+        console.error(`Budget exceeded: ${result.message}`);
+        // Return a proper error response to the client
+        return res.status(403).json({
+          error: "budget_exceeded",
+          message:
+            result.message ||
+            "Monthly TTS budget limit has been reached. Service will resume next month.",
+        });
+      } else {
+        console.error(`Failed to generate audio for line ${i + 1}`);
+      }
+    }
+
+    // Combine all audio segments into one file
+    console.log("Combining audio segments...");
+    const combinedFile = path.join(outputDir, outputFilename);
+    let combinedSuccess = await combineAudioFiles(audioSegments, combinedFile);
+
+    // Add post-processing to repair the MP3 file
+    if (combinedSuccess) {
+      console.log("Post-processing audio to ensure playback compatibility...");
+      const repairSuccess = await repairMp3File(combinedFile, combinedFile);
+
+      if (repairSuccess) {
+        console.log("Audio post-processing successful");
+      } else {
+        console.warn(
+          "Audio post-processing failed, using original combined file"
+        );
+      }
+    } else {
+      console.error("Failed to combine audio segments");
+      return res
+        .status(500)
+        .json({ error: "Failed to generate podcast audio" });
+    }
+
+    // Clean up temp files
+    for (const file of audioSegments) {
+      await fs.remove(file).catch(() => {});
+    }
+
+    console.log(`Podcast generated successfully: ${combinedFile}`);
+
+    // Return podcast data
+    res.json({
+      script: optimizedScript,
+      audioUrl: `/podcasts/${path.basename(combinedFile)}`,
+    });
   } catch (error) {
     console.error("PODCAST GENERATION FAILED:", error.message);
     console.error("Error type:", error.constructor.name);
