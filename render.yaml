@@ -1,23 +1,27 @@
 services:
   - type: web
-    name: pdfcast-app
+    name: ai-podcast-generator
     env: node
-    buildCommand: npm install && cd frontend && npm install && npm run build && cd ..
-    startCommand: npm start
+    buildCommand: npm install && npm run build
+    startCommand: cd backend && node app.js
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 10000
+      - key: UPLOADS_DIR
+        value: /data/uploads
+      - key: TEMP_DIR
+        value: /data/temp
+      - key: OUTPUT_DIR
+        value: /data/podcasts
+      - key: GROQ_API_KEY
+        sync: false
       - key: AWS_ACCESS_KEY_ID
         sync: false
       - key: AWS_SECRET_ACCESS_KEY
         sync: false
       - key: AWS_REGION
         value: us-east-1
-      - key: GROQ_API_KEY
-        sync: false
     disk:
-      name: podcast-storage
-      mountPath: /opt/render/project/src/public/podcasts
+      name: data
+      mountPath: /data
       sizeGB: 1

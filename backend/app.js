@@ -8,6 +8,7 @@ const rateLimit = require("express-rate-limit");
 const { extractTextFromPdf } = require("./tessaractOCR");
 const { synthesizeSpeech } = require("./aws_polly_tts");
 const { analyzeScript } = require("./scriptEnhancer");
+const config = require("./config");
 require("dotenv").config();
 
 const app = express();
@@ -101,10 +102,21 @@ function isValidPodcastScript(text) {
   return true;
 }
 
+// Ensure all required directories exist
+(async () => {
+  try {
+    await config.ensureDirectories();
+    console.log("Storage directories initialized successfully");
+  } catch (err) {
+    console.error("Failed to initialize storage directories:", err);
+    process.exit(1);
+  }
+})();
+
 // Configure storage for uploaded files
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, "../uploads/");
+    cb(null, config.UPLOADS_DIR);
   },
   filename: (req, file, cb) => {
     cb(null, Date.now() + path.extname(file.originalname));
@@ -365,9 +377,7 @@ NEVER include:
 - References to "subscribing" or "following" the podcast
 - Mentions of "next episode" or "series"
 - Generic podcast language about "tune in next time"
-- Any indication this is part of a regular show
-
-EXTREMELY IMPORTANT: This is part ${chunkNumber}/${totalChunks} of a podcast script. Your chunk MUST be EXACTLY ${chunkWordCount} words. No more, no less.`;
+- Any indication this is part ${chunkNumber}/${totalChunks} of a podcast script. Your chunk MUST be EXACTLY ${chunkWordCount} words. No more, no less.`;
 
   // Adjust user prompt based on chunk position
   let userPrompt;
@@ -926,7 +936,7 @@ PDF Content: ${text}`;
       scriptAnalysis.improvements.forEach((improvement) =>
         console.log(`- ${improvement}`)
       );
-      completeScript = scriptAnalysis.improvedScript;
+      scriptAnalysis = scriptAnalysis.improvedScript;
     } else {
       console.log("No additional improvements needed");
     }
@@ -962,8 +972,8 @@ PDF Content: ${text}`;
     const lines = optimizedScript.split("\n").filter((line) => line.trim());
     const audioSegments = [];
     const timestamp = Date.now();
-    const tempDir = path.join(__dirname, "../temp");
-    const outputDir = path.join(__dirname, "../public/podcasts");
+    const tempDir = config.TEMP_DIR;
+    const outputDir = config.OUTPUT_DIR;
 
     // Ensure directories exist
     await fs.ensureDir(tempDir);
@@ -1100,10 +1110,7 @@ const {
 } = require("./audio-utils");
 
 // Serve static files from the public directory
-app.use(
-  "/podcasts",
-  express.static(path.join(__dirname, "../public/podcasts"))
-);
+app.use("/podcasts", express.static(config.OUTPUT_DIR));
 
 // Basic health check endpoint
 app.get("/api/health", (req, res) => {
@@ -1114,7 +1121,7 @@ app.get("/api/health", (req, res) => {
 app.get("/podcasts/:filename", async (req, res) => {
   try {
     const filename = req.params.filename;
-    const filePath = path.join(__dirname, "../public/podcasts", filename);
+    const filePath = path.join(config.OUTPUT_DIR, filename);
 
     // Validate the file exists
     try {
