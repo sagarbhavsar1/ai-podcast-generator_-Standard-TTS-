@@ -1245,6 +1245,67 @@ Ric: Thanks for listening to our test script. Hope it works!`;
   }
 });
 
+// Add special AWS Polly test endpoint
+app.post("/api/test-aws-polly", async (req, res) => {
+  try {
+    console.log("Testing AWS Polly service with sample text");
+
+    // Create temporary and output directories
+    const tempDir = config.TEMP_DIR;
+    const outputDir = config.OUTPUT_DIR;
+    await fs.ensureDir(tempDir);
+    await fs.ensureDir(outputDir);
+
+    // Create a test output file
+    const timestamp = Date.now();
+    const outputFilename = `polly_test_${timestamp}.mp3`;
+    const outputPath = path.join(outputDir, outputFilename);
+
+    // Sample text to synthesize
+    const sampleText =
+      "This is a test of the AWS Polly service. If you can hear this message, your configuration is working correctly.";
+
+    console.log("Synthesizing speech with AWS Polly");
+    console.log(
+      `AWS credentials: ${
+        process.env.AWS_ACCESS_KEY_ID ? "Key exists" : "MISSING"
+      }`
+    );
+    console.log(`AWS region: ${process.env.AWS_REGION || "default"}`);
+
+    // Directly use the synthesizeSpeech function
+    const result = await synthesizeSpeech(
+      sampleText,
+      "Joanna",
+      outputPath,
+      "standard"
+    );
+
+    if (result === true) {
+      console.log("AWS Polly test successful!");
+      return res.json({
+        success: true,
+        message: "AWS Polly test successful",
+        audioUrl: `/podcasts/${outputFilename}`,
+      });
+    } else {
+      console.error("AWS Polly test failed:", result);
+      return res.status(500).json({
+        success: false,
+        error: "AWS Polly test failed",
+        details: result,
+      });
+    }
+  } catch (error) {
+    console.error("AWS Polly test error:", error);
+    return res.status(500).json({
+      success: false,
+      error: "AWS Polly test error",
+      message: error.message,
+    });
+  }
+});
+
 // Add a simple test page that uses the test endpoint
 app.get("/test-script-page", (req, res) => {
   res.send(`

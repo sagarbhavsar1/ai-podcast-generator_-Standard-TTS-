@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>AWS Polly Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .test-panel {
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+      }
+      button {
+        background: #4caf50;
+        border: none;
+        color: white;
+        padding: 10px 15px;
+        cursor: pointer;
+        border-radius: 4px;
+      }
+      button:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+      }
+      #result {
+        margin-top: 20px;
+        padding: 15px;
+        border: 1px solid #eee;
+        background: #f9f9f9;
+        min-height: 100px;
+      }
+      .success {
+        color: green;
+      }
+      .error {
+        color: red;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>AWS Polly TTS Test Tool</h1>
+    <div class="test-panel">
+      <p>
+        This tool tests AWS Polly text-to-speech functionality independently of
+        the Groq API.
+      </p>
+      <button id="testButton" onclick="testPolly()">Test AWS Polly</button>
+    </div>
+
+    <div id="result">Results will appear here...</div>
+    <div id="audioPlayer" style="display: none; margin-top: 20px">
+      <h3>Generated Audio:</h3>
+      <audio controls id="audio" style="width: 100%"></audio>
+    </div>
+
+    <script>
+      async function testPolly() {
+        const button = document.getElementById("testButton");
+        const resultDiv = document.getElementById("result");
+        const audioPlayer = document.getElementById("audioPlayer");
+        const audio = document.getElementById("audio");
+
+        button.disabled = true;
+        resultDiv.innerHTML =
+          "<p>Testing AWS Polly service, please wait...</p>";
+        audioPlayer.style.display = "none";
+
+        try {
+          const response = await fetch("/api/test-aws-polly", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+          });
+
+          const data = await response.json();
+
+          if (response.ok && data.success) {
+            resultDiv.innerHTML = `
+            <p class="success">✅ AWS Polly test successful!</p>
+            <p>An audio file was successfully generated. Listen to it below.</p>
+          `;
+
+            audio.src = data.audioUrl;
+            audioPlayer.style.display = "block";
+          } else {
+            resultDiv.innerHTML = `
+            <p class="error">❌ AWS Polly test failed</p>
+            <p>Error details: ${data.error || "Unknown error"}</p>
+            <p>${data.message || ""}</p>
+            <p>${JSON.stringify(data.details || {})}</p>
+          `;
+          }
+        } catch (err) {
+          resultDiv.innerHTML = `
+          <p class="error">❌ Network error</p>
+          <p>${err.message}</p>
+        `;
+        } finally {
+          button.disabled = false;
+        }
+      }
+    </script>
+  </body>
+</html>
