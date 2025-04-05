@@ -1,224 +1,135 @@
 const AWS = require("aws-sdk");
-const fs = require("fs");
-const util = require("util");
+const fs = require("fs-extra");
+const path = require("path");
+const { promisify } = require("util");
 const stream = require("stream");
-const pipeline = util.promisify(stream.pipeline);
+const pipeline = promisify(stream.pipeline);
 
 // Configure AWS
-function configureAWS() {
-  AWS.config.update({
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-    region: process.env.AWS_REGION || "us-east-1",
-  });
+AWS.config.update({
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  region: process.env.AWS_REGION || "us-east-1",
+});
+
+// Create Polly service object
+const polly = new AWS.Polly();
+
+// Voice mapping configuration for different TTS engines
+const VOICE_MAPPINGS = {
+  standard: {
+    Ashley: "Joanna", // Female voice for Ashley (main host)
+    Ric: "Matthew", // Male voice for Ric
+  },
+  neural: {
+    Ashley: "Danielle", // Female voice for Ashley (main host)
+    Ric: "Stephen", // Male voice for Ric
+  },
+  generative: {
+    Ashley: "Danielle", // Female voice for Ashley (main host)
+    Ric: "Matthew", // Male voice for Ric
+  },
+};
+
+// Default to standard engine if not specified
+function getTtsEngine() {
+  const engine = process.env.TTS_ENGINE || "standard";
+  // Log the engine being used
+  console.log(`Using AWS Polly TTS engine: ${engine}`);
+  return engine;
 }
 
-/**
- * Synthesize speech using Amazon Polly
- * @param {string} text - The text to convert to speech
- * @param {string} voice - The Polly voice ID (e.g., 'Joanna', 'Matthew')
- * @param {string} outputFile - Path to save the audio file
- * @param {string} [engine="neural"] - The engine type ('standard', 'neural', or 'generative')
- * @returns {Promise<boolean|object>} - Success/failure or structured error object
- */
-async function synthesizeSpeech(text, voice, outputFile, engine = "neural") {
-  try {
-    configureAWS();
-    const polly = new AWS.Polly();
+// Get voices based on the current engine setting
+function getVoices() {
+  const engine = getTtsEngine();
+  if (!VOICE_MAPPINGS[engine]) {
+    console.warn(
+      `Unknown TTS engine "${engine}", falling back to standard voices`
+    );
+    return VOICE_MAPPINGS.standard;
+  }
+  return VOICE_MAPPINGS[engine];
+}
 
-    // Character count logging for cost monitoring
-    const charCount = text.length;
+// Synthesize speech using AWS Polly
+async function synthesizeSpeech(text, voice, outputFile, engineType = null) {
+  try {
+    // If no specific engineType is provided, use the environment variable
+    const engine = engineType || getTtsEngine();
+
+    // Update the voice if it's a character name (Ashley or Ric)
+    if (voice === "Ashley" || voice === "Ric") {
+      const voices = getVoices();
+      voice = voices[voice];
+    }
+
+    // Set engine type based on the selected engine
+    let engineSettings = {};
+    if (engine === "neural" || engine === "generative") {
+      engineSettings.Engine = engine;
+    }
+
     console.log(
-      `TTS Request: ${charCount} characters, voice: ${voice}, engine: ${engine}`
+      `Synthesizing speech with ${engine} engine using voice: ${voice}`
     );
 
-    // Clean up text for better speech synthesis
-    text = cleanupTextForSpeech(text);
-
-    // Split long text if needed (Polly has character limits)
-    const maxChars = engine === "generative" ? 3000 : 6000;
-    if (charCount > maxChars) {
-      return await synthesizeLongSpeech(
-        text,
-        voice,
-        outputFile,
-        engine,
-        maxChars
-      );
-    }
-
-    // Request speech synthesis
+    // Set the parameters for speech synthesis
     const params = {
       OutputFormat: "mp3",
+      SampleRate: "24000",
       Text: text,
+      TextType: "text",
       VoiceId: voice,
-      Engine: engine,
-      TextType: "text", // 'ssml' is also supported
+      ...engineSettings,
     };
 
-    // For streaming audio directly to file
-    const result = await polly.synthesizeSpeech(params).promise();
+    // Log the API call for debugging
+    console.log(`AWS Polly params: ${JSON.stringify(params, null, 2)}`);
 
-    // Save the audio
-    fs.writeFileSync(outputFile, result.AudioStream);
+    try {
+      // Check for budget limit
+      // This would be extended with your actual budget check implementation
+      const monthlyBudgetLimit = process.env.AWS_POLLY_BUDGET_LIMIT;
+      if (monthlyBudgetLimit && false) {
+        // Placeholder for actual budget check
+        return {
+          error: "budget_exceeded",
+          message: "Monthly AWS Polly budget limit has been reached.",
+        };
+      }
 
-    console.log(`Successfully synthesized speech to ${outputFile}`);
-    return true;
-  } catch (error) {
-    // Check if this is an access denied error (budget exceeded)
-    if (error.code === "AccessDeniedException") {
-      console.error(
-        `Budget limit exceeded for ${engine} engine. AWS Polly access has been restricted.`
-      );
-      return {
-        success: false,
-        error: "budget_exceeded",
-        message: `Monthly budget for ${engine} TTS has been reached. Service will resume next month.`,
-      };
+      // Call AWS Polly to synthesize speech
+      const data = await polly.synthesizeSpeech(params).promise();
+
+      // Create the output directory if it doesn't exist
+      const outputDir = path.dirname(outputFile);
+      await fs.ensureDir(outputDir);
+
+      // Write the audio stream to the output file
+      await fs.writeFile(outputFile, data.AudioStream);
+
+      return true;
+    } catch (error) {
+      console.error("AWS Polly API error:", error);
+
+      // Handle specific AWS errors
+      if (error.code === "AccessDenied") {
+        return {
+          error: "access_denied",
+          message: "AWS access denied. Check your credentials.",
+        };
+      }
+
+      return false;
     }
-
-    console.error(`Error synthesizing speech: ${error.message}`);
+  } catch (error) {
+    console.error("Speech synthesis error:", error);
     return false;
   }
 }
 
-// Remove speech markers and clean up text - reverting to original version
-function cleanupTextForSpeech(text) {
-  // Remove stage directions
-  text = text.replace(/\[.*?\]/g, "");
-
-  // Fix ellipses for better pronunciation
-  text = text.replace(/\.{3,}/g, " pause ");
-
-  // Replace special characters and symbols for better pronunciation
-  text = text.replace(/[*#]/g, " ");
-  text = text.replace(/&/g, " and ");
-  text = text.replace(/@/g, " at ");
-
-  // Ensure proper spacing after punctuation
-  text = text.replace(/([.!?])\s*(?=[A-Z])/g, "$1 ");
-
-  return text.trim();
-}
-
-// Helper function to handle longer texts
-async function synthesizeLongSpeech(text, voice, outputFile, engine, maxChars) {
-  // Split the text into chunks of 2500 characters (to stay under the 3000 limit)
-  const maxChunkSize = maxChars - 500;
-  const chunks = [];
-
-  // Try to split at natural boundaries
-  let startIndex = 0;
-  while (startIndex < text.length) {
-    let endIndex = Math.min(startIndex + maxChunkSize, text.length);
-
-    // If we're not at the end of the text, try to find a good breaking point
-    if (endIndex < text.length) {
-      // Look for sentence breaks first
-      const lastPeriod = text.lastIndexOf(".", endIndex);
-      const lastQuestion = text.lastIndexOf("?", endIndex);
-      const lastExclamation = text.lastIndexOf("!", endIndex);
-
-      // Find the closest sentence break
-      const breakPoint = Math.max(lastPeriod, lastQuestion, lastExclamation);
-
-      // If we found a valid break point, use it
-      if (breakPoint > startIndex && breakPoint < endIndex) {
-        endIndex = breakPoint + 1;
-      } else {
-        // Otherwise find the last space
-        const lastSpace = text.lastIndexOf(" ", endIndex);
-        if (lastSpace > startIndex) {
-          endIndex = lastSpace + 1;
-        }
-      }
-    }
-
-    chunks.push(text.substring(startIndex, endIndex));
-    startIndex = endIndex;
-  }
-
-  console.log(`Split text into ${chunks.length} chunks`);
-
-  // Process each chunk and combine the output
-  const tempFiles = [];
-  for (let i = 0; i < chunks.length; i++) {
-    const tempFile = `${outputFile}.part${i}.mp3`;
-    tempFiles.push(tempFile);
-
-    const success = await synthesizeSpeech(chunks[i], voice, tempFile, engine);
-
-    if (!success) {
-      console.error(`Failed to synthesize chunk ${i}`);
-      return false;
-    }
-  }
-
-  // Combine all the audio files
-  await combineAudioFiles(tempFiles, outputFile);
-
-  // Clean up temp files
-  for (const file of tempFiles) {
-    fs.unlinkSync(file);
-  }
-
-  return true;
-}
-
-// Combine multiple audio files into one
-async function combineAudioFiles(files, outputFile) {
-  const writeStream = fs.createWriteStream(outputFile);
-
-  for (const file of files) {
-    const readStream = fs.createReadStream(file);
-    await pipeline(readStream, writeStream, { end: false });
-  }
-
-  writeStream.end();
-  return true;
-}
-
-// New function to get available Polly voices
-async function getAvailableVoices() {
-  try {
-    configureAWS();
-    const polly = new AWS.Polly();
-    const result = await polly.describeVoices({}).promise();
-    return result.Voices;
-  } catch (error) {
-    console.error(`Error getting available voices: ${error.message}`);
-    return [];
-  }
-}
-
-// New function for generating complete podcasts
-async function generatePodcastAudio(script, options = {}) {
-  // Default options
-  const defaults = {
-    hostAVoice: "Joanna",
-    hostBVoice: "Matthew",
-    engine: "neural",
-    outputDir: "./output",
-    tempDir: "./temp",
-  };
-
-  const config = { ...defaults, ...options };
-
-  // Implementation details would go here...
-  // This would process the entire script, use the appropriate voices for each host,
-  // add pauses, and combine everything into a final audio file
-
-  return {
-    success: true,
-    audioFile: "path/to/final/audio.mp3",
-    duration: 300, // seconds
-    characterCount: 15000,
-  };
-}
-
 module.exports = {
   synthesizeSpeech,
-  synthesizeLongSpeech,
-  generatePodcastAudio,
-  getAvailableVoices,
+  getVoices,
+  getTtsEngine,
 };
