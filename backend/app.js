@@ -62,6 +62,16 @@ if (fs.existsSync(frontendPath)) {
   });
 }
 
+// Validate required API keys at startup
+console.log("Checking required API keys...");
+if (!process.env.GROQ_API_KEY) {
+  console.error("⚠️ GROQ_API_KEY environment variable is missing!");
+}
+
+if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
+  console.error("⚠️ AWS credentials are missing!");
+}
+
 // Rate limiting
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
@@ -810,6 +820,10 @@ app.post("/api/generate", apiLimiter, async (req, res) => {
     // Try to process the entire PDF in one go
     try {
       console.log("Attempting to process entire PDF in one API call...");
+      console.log(
+        "Using Groq API with key:",
+        process.env.GROQ_API_KEY ? "Key is set" : "⚠️ KEY MISSING"
+      );
 
       // System prompt for podcast creation
       const systemPrompt = `You are the world's best podcast script creator. You transform written content into authentic, engaging conversations between two hosts (Ashley and Ric).
@@ -854,81 +868,98 @@ EXTREMELY IMPORTANT:
 PDF Content: ${text}`;
 
       // Call Groq API with DeepSeek R1 Distill Llama 70B model
-      const response = await axios.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        {
-          model: "deepseek-r1-distill-llama-70b",
-          messages: [
-            {
-              role: "system",
-              content: systemPrompt,
-            },
-            {
-              role: "user",
-              content: userPrompt,
-            },
-          ],
-          temperature: 0.7,
-          max_tokens: 10000,
-          top_p: 0.9,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-            "Content-Type": "application/json",
+      console.log("Calling Groq API with model: deepseek-r1-distill-llama-70b");
+      try {
+        const response = await axios.post(
+          "https://api.groq.com/openai/v1/chat/completions",
+          {
+            model: "deepseek-r1-distill-llama-70b",
+            messages: [
+              {
+                role: "system",
+                content: systemPrompt,
+              },
+              {
+                role: "user",
+                content: userPrompt,
+              },
+            ],
+            temperature: 0.7,
+            max_tokens: 10000,
+            top_p: 0.9,
           },
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            timeout: 60000, // Increase timeout to 60 seconds
+          }
+        );
+        console.log("Successfully received response from Groq API");
+
+        // Remove <think> tags if present in the response
+        completeScript = response.data.choices[0].message.content;
+        completeScript = completeScript.replace(
+          /<think>[\s\S]*?<\/think>/g,
+          ""
+        );
+
+        // Verify script duration
+        const durationCheck = verifyScriptDuration(completeScript);
+        console.log(`\n=== SCRIPT GENERATION RESULTS ===`);
+        console.log(`Word count: ${durationCheck.wordCount} words`);
+        console.log(
+          `Estimated duration: ${durationCheck.estimatedMinutes.toFixed(
+            1
+          )} minutes`
+        );
+        console.log(`Target duration: ${durationCheck.targetMinutes} minutes`);
+        console.log(`Acceptable range: ${durationCheck.acceptableRange}`);
+        console.log(
+          `Within acceptable range: ${
+            durationCheck.isWithinRange ? "Yes" : "No"
+          }`
+        );
+
+        // Only apply minimal protection for extreme outliers (3x target length)
+        if (durationCheck.estimatedMinutes > TARGET_PODCAST_DURATION * 3) {
+          console.log(
+            `\n=== APPLYING TRIMMING ===\nScript is excessively long (${durationCheck.estimatedMinutes.toFixed(
+              1
+            )} min, > ${(TARGET_PODCAST_DURATION * 3).toFixed(
+              1
+            )} min threshold)`
+          );
+          const safeMaxWords = calculateTargetWordCount(
+            TARGET_PODCAST_DURATION * 2
+          );
+          completeScript = trimScriptPreservingStructure(
+            completeScript,
+            safeMaxWords
+          );
+          console.log(
+            `After minimal trimming: ${countWords(completeScript)} words`
+          );
+        } else {
+          console.log(
+            `\n=== NO TRIMMING NEEDED ===\nScript length (${durationCheck.estimatedMinutes.toFixed(
+              1
+            )} min) below ${(TARGET_PODCAST_DURATION * 3).toFixed(
+              1
+            )} min threshold`
+          );
         }
-      );
 
-      console.log("Successfully processed entire PDF in one API call");
-
-      // Remove <think> tags if present in the response
-      completeScript = response.data.choices[0].message.content;
-      completeScript = completeScript.replace(/<think>[\s\S]*?<\/think>/g, "");
-
-      // Verify script duration
-      const durationCheck = verifyScriptDuration(completeScript);
-      console.log(`\n=== SCRIPT GENERATION RESULTS ===`);
-      console.log(`Word count: ${durationCheck.wordCount} words`);
-      console.log(
-        `Estimated duration: ${durationCheck.estimatedMinutes.toFixed(
-          1
-        )} minutes`
-      );
-      console.log(`Target duration: ${durationCheck.targetMinutes} minutes`);
-      console.log(`Acceptable range: ${durationCheck.acceptableRange}`);
-      console.log(
-        `Within acceptable range: ${durationCheck.isWithinRange ? "Yes" : "No"}`
-      );
-
-      // Only apply minimal protection for extreme outliers (3x target length)
-      if (durationCheck.estimatedMinutes > TARGET_PODCAST_DURATION * 3) {
-        console.log(
-          `\n=== APPLYING TRIMMING ===\nScript is excessively long (${durationCheck.estimatedMinutes.toFixed(
-            1
-          )} min, > ${(TARGET_PODCAST_DURATION * 3).toFixed(1)} min threshold)`
-        );
-        const safeMaxWords = calculateTargetWordCount(
-          TARGET_PODCAST_DURATION * 2
-        );
-        completeScript = trimScriptPreservingStructure(
-          completeScript,
-          safeMaxWords
-        );
-        console.log(
-          `After minimal trimming: ${countWords(completeScript)} words`
-        );
-      } else {
-        console.log(
-          `\n=== NO TRIMMING NEEDED ===\nScript length (${durationCheck.estimatedMinutes.toFixed(
-            1
-          )} min) below ${(TARGET_PODCAST_DURATION * 3).toFixed(
-            1
-          )} min threshold`
-        );
+        console.log("Script generation completed successfully");
+      } catch (groqError) {
+        console.error("Error calling Groq API:", groqError.message);
+        if (groqError.response) {
+          console.error("Groq API status code:", groqError.response.status);
+          console.error("Groq API error response:", groqError.response.data);
+        }
+        throw groqError; // Re-throw to fall back to chunking method
       }
-
-      console.log("Script generation completed successfully");
     } catch (error) {
       console.error("Error processing entire PDF:", error.message);
 
@@ -1086,6 +1117,10 @@ PDF Content: ${text}`;
 
     // Generate audio using AWS Polly instead of voice_service.py
     console.log("Generating audio with AWS Polly TTS...");
+    console.log(
+      "Using AWS credentials:",
+      process.env.AWS_ACCESS_KEY_ID ? "Key is set" : "⚠️ KEY MISSING"
+    );
 
     // Parse the script to separate Ashley and Ric lines
     const lines = optimizedScript.split("\n").filter((line) => line.trim());
@@ -1216,7 +1251,14 @@ PDF Content: ${text}`;
     });
   } catch (error) {
     console.error("Error generating podcast:", error);
-    res.status(500).json({ error: "Failed to generate podcast" });
+    if (error.response) {
+      console.error("Response status:", error.response.status);
+      console.error("Response data:", error.response.data);
+    }
+    res.status(500).json({
+      error: "Failed to generate podcast",
+      message: error.message || "Unknown error",
+    });
   }
 });
 
