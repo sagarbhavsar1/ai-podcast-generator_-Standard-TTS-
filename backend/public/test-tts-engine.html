@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>TTS Engine Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .test-panel {
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+      }
+      .voice-player {
+        margin-bottom: 15px;
+        padding: 15px;
+        background: #f9f9f9;
+        border-radius: 8px;
+      }
+      button {
+        background: #4caf50;
+        border: none;
+        color: white;
+        padding: 10px 15px;
+        cursor: pointer;
+        border-radius: 4px;
+      }
+      button:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+      }
+      #result {
+        margin-top: 20px;
+        padding: 15px;
+        border: 1px solid #eee;
+        background: #f9f9f9;
+        min-height: 100px;
+      }
+      .success {
+        color: green;
+      }
+      .error {
+        color: red;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>TTS Engine Test Tool</h1>
+    <div class="test-panel">
+      <p>
+        This tool tests the current TTS engine configuration and generates
+        sample audio for both host voices.
+      </p>
+      <p>
+        <strong
+          >Current settings are controlled by the
+          <code>TTS_ENGINE</code> environment variable.</strong
+        >
+      </p>
+      <button id="testButton" onclick="testTtsEngine()">
+        Test Current TTS Engine
+      </button>
+    </div>
+
+    <div id="result">Results will appear here...</div>
+    <div id="audioPlayers" style="display: none; margin-top: 20px">
+      <h3>Generated Audio Samples:</h3>
+
+      <div class="voice-player">
+        <h4>Ashley:</h4>
+        <audio controls id="ashleyAudio" style="width: 100%"></audio>
+      </div>
+
+      <div class="voice-player">
+        <h4>Ric:</h4>
+        <audio controls id="ricAudio" style="width: 100%"></audio>
+      </div>
+    </div>
+
+    <script>
+      async function testTtsEngine() {
+        const button = document.getElementById("testButton");
+        const resultDiv = document.getElementById("result");
+        const audioPlayers = document.getElementById("audioPlayers");
+        const ashleyAudio = document.getElementById("ashleyAudio");
+        const ricAudio = document.getElementById("ricAudio");
+
+        button.disabled = true;
+        resultDiv.innerHTML =
+          "<p>Testing current TTS engine configuration, please wait...</p>";
+        audioPlayers.style.display = "none";
+
+        try {
+          const response = await fetch("/api/test-tts-engine", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+          });
+
+          const data = await response.json();
+
+          if (response.ok && data.success) {
+            resultDiv.innerHTML = `
+              <p class="success">✅ TTS Engine test successful!</p>
+              <p><strong>Engine:</strong> ${data.engine}</p>
+              <p><strong>Ashley's voice:</strong> ${data.voices.Ashley}</p>
+              <p><strong>Ric's voice:</strong> ${data.voices.Ric}</p>
+              <p>Audio samples were successfully generated. Listen to them below.</p>
+            `;
+
+            ashleyAudio.src = data.audioUrls.ashley;
+            ricAudio.src = data.audioUrls.ric;
+            audioPlayers.style.display = "block";
+          } else {
+            resultDiv.innerHTML = `
+              <p class="error">❌ TTS Engine test failed</p>
+              <p>Error details: ${data.error || "Unknown error"}</p>
+              <p>${data.message || ""}</p>
+              <p>${JSON.stringify(data.ashleyResult || {})}</p>
+              <p>${JSON.stringify(data.ricResult || {})}</p>
+            `;
+          }
+        } catch (err) {
+          resultDiv.innerHTML = `
+            <p class="error">❌ Network error</p>
+            <p>${err.message}</p>
+          `;
+        } finally {
+          button.disabled = false;
+        }
+      }
+    </script>
+  </body>
+</html>

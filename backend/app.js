@@ -6,7 +6,7 @@ const path = require("path");
 const axios = require("axios");
 const rateLimit = require("express-rate-limit");
 const { extractTextFromPdf } = require("./tessaractOCR");
-const { synthesizeSpeech } = require("./aws_polly_tts");
+const { synthesizeSpeech, getVoices } = require("./aws_polly_tts");
 const { analyzeScript } = require("./scriptEnhancer");
 const config = require("./config");
 const debugHelper = require("./debug-helper");
@@ -808,6 +808,7 @@ app.post("/api/generate", apiLimiter, async (req, res) => {
     console.log(`Source: ${filename}`);
     console.log(`Text length: ${text.length} characters`);
     console.log(`Target duration: ${TARGET_PODCAST_DURATION} minutes`);
+    console.log(`TTS Engine: ${process.env.TTS_ENGINE || "standard"}`);
 
     // Add API key validation logging
     console.log(
@@ -838,7 +839,6 @@ app.post("/api/generate", apiLimiter, async (req, res) => {
 
     // Try to process the entire PDF in one go
     let completeScript = "";
-
     try {
       console.log("Attempting to process entire PDF in one API call...");
       console.log(
@@ -848,7 +848,6 @@ app.post("/api/generate", apiLimiter, async (req, res) => {
 
       // System prompt for podcast creation
       const systemPrompt = `You are the world's best podcast script creator. You transform written content into authentic, engaging conversations between two hosts (Ashley and Ric).
-
 EXTREMELY IMPORTANT: The script MUST be EXACTLY ${targetWordCount} words to produce a ${TARGET_PODCAST_DURATION}-minute podcast. No more, no less.
 
 Create an authentic-sounding conversation with these characteristics:
@@ -893,11 +892,9 @@ PDF Content: ${text}`;
         "Preparing Groq API call with model: deepseek-r1-distill-llama-70b"
       );
       console.log("API URL: https://api.groq.com/openai/v1/chat/completions");
-
       try {
         console.log("Making Groq API request now...");
         const startTime = Date.now();
-
         const response = await axios.post(
           "https://api.groq.com/openai/v1/chat/completions",
           {
@@ -1010,7 +1007,6 @@ PDF Content: ${text}`;
         } else {
           console.error("Error setting up request:", groqError.message);
         }
-
         // Try fallback model if available
         console.error("Attempting fallback to alternate model...");
         throw groqError;
@@ -1082,9 +1078,13 @@ PDF Content: ${text}`;
     const outputFilename = `podcast_${timestamp}.mp3`;
     const outputPath = path.join(outputDir, outputFilename);
 
-    // Voice mapping for AWS Polly (neural voices)
-    const hostAVoice = "Joanna"; // Female voice for Ashley (main host)
-    const hostBVoice = "Matthew"; // Male voice for Ric
+    // Get the voices based on the current TTS engine setting
+    const voiceMapping = getVoices();
+
+    // Log the selected voices
+    console.log(
+      `Using voice mapping: Ashley=${voiceMapping.Ashley}, Ric=${voiceMapping.Ric}`
+    );
 
     // Process each line with the appropriate voice
     for (let i = 0; i < lines.length; i++) {
@@ -1108,9 +1108,9 @@ PDF Content: ${text}`;
       // Debug the speaker extraction
       console.log(`DEBUG: Extracted speaker: "${speaker}"`);
 
-      // Determine which voice to use
+      // Determine which voice to use based on the speaker
       const isHostA = /ashley/i.test(speaker) || /host\s*a/i.test(speaker); // Match both Ashley and Host A
-      const voice = isHostA ? hostAVoice : hostBVoice;
+      const voice = isHostA ? voiceMapping.Ashley : voiceMapping.Ric;
 
       // Log the voice assignment
       console.log(`DEBUG: Assigned voice: ${voice} for speaker: ${speaker}`);
@@ -1119,14 +1119,12 @@ PDF Content: ${text}`;
       const tempFile = path.join(tempDir, `line_${i}.mp3`);
       console.log(`Processing line ${i + 1}/${lines.length} with ${voice}...`);
 
-      // Use AWS Polly to synthesize speech
-      const result = await synthesizeSpeech(text, voice, tempFile, "standard");
+      // Use AWS Polly to synthesize speech - using current TTS engine from environment
+      const result = await synthesizeSpeech(text, voice, tempFile);
 
       // Improved error handling for budget exceeded scenario
       if (result === true) {
         audioSegments.push(tempFile);
-
-        // Add a pause after each line
         if (
           text.endsWith(".") ||
           text.endsWith("!") ||
@@ -1139,7 +1137,6 @@ PDF Content: ${text}`;
             ? 0.7
             : 0.4;
           const pauseFile = path.join(tempDir, `pause_${i}.mp3`);
-
           // Create a silent MP3 file for the pause
           await createSilence(pauseFile, pauseLength);
           audioSegments.push(pauseFile);
@@ -1167,7 +1164,6 @@ PDF Content: ${text}`;
     if (combinedSuccess) {
       console.log("Post-processing audio to ensure playback compatibility...");
       const repairSuccess = await repairMp3File(combinedFile, combinedFile);
-
       if (repairSuccess) {
         console.log("Audio post-processing successful");
       } else {
@@ -1197,7 +1193,6 @@ PDF Content: ${text}`;
   } catch (error) {
     console.error("PODCAST GENERATION FAILED:", error.message);
     console.error("Error type:", error.constructor.name);
-
     if (error.response) {
       console.error("Response status:", error.response.status);
       console.error("Response data:", JSON.stringify(error.response.data));
@@ -1306,51 +1301,68 @@ app.post("/api/test-aws-polly", async (req, res) => {
   }
 });
 
-// Add a simple test page that uses the test endpoint
-app.get("/test-script-page", (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <title>Test Script Generation</title>
-        <style>
-          body { font-family: Arial; max-width: 800px; margin: 0 auto; padding: 20px; }
-          button { padding: 10px; background: #4CAF50; color: white; border: none; cursor: pointer; }
-          #result { margin-top: 20px; white-space: pre-wrap; border: 1px solid #ddd; padding: 10px; }
-        </style>
-      </head>
-      <body>
-        <h1>Test Script Generation</h1>
-        <p>This bypasses Groq API and tests only the TTS component</p>
-        <button id="testBtn">Generate Test Script</button>
-        <div id="result"></div>
+// Add TTS engine test endpoint
+app.post("/api/test-tts-engine", async (req, res) => {
+  try {
+    // Get current TTS engine from environment
+    const engine = process.env.TTS_ENGINE || "standard";
+    const voices = getVoices();
 
-        <script>
-          document.getElementById('testBtn').addEventListener('click', async () => {
-            document.getElementById('result').innerText = 'Processing...';
+    // Create temporary and output directories
+    const tempDir = config.TEMP_DIR;
+    const outputDir = config.OUTPUT_DIR;
+    await fs.ensureDir(tempDir);
+    await fs.ensureDir(outputDir);
 
-            try {
-              const response = await fetch('/api/test-script', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ test: true })
-              });
+    // Sample texts for Ashley and Ric
+    const ashleySample =
+      "Hello, I'm Ashley. This is a test of the voice configuration for the current TTS engine.";
+    const ricSample =
+      "And I'm Ric. We're testing different voices with AWS Polly.";
 
-              const data = await response.json();
+    // Create test output files
+    const timestamp = Date.now();
+    const ashleyFile = `ashley_test_${timestamp}.mp3`;
+    const ricFile = `ric_test_${timestamp}.mp3`;
+    const ashleyPath = path.join(outputDir, ashleyFile);
+    const ricPath = path.join(outputDir, ricFile);
 
-              if (response.ok) {
-                document.getElementById('result').innerText = 'Success! Script:\\n\\n' + data.script;
-              } else {
-                document.getElementById('result').innerText = 'Error: ' + (data.message || 'Unknown error');
-              }
-            } catch (err) {
-              document.getElementById('result').innerText = 'Failed: ' + err.message;
-            }
-          });
-        </script>
-      </body>
-    </html>
-  `);
+    // Generate test audio for both hosts
+    console.log(
+      `Testing ${engine} engine with voices: Ashley=${voices.Ashley}, Ric=${voices.Ric}`
+    );
+    const ashleyResult = await synthesizeSpeech(
+      ashleySample,
+      voices.Ashley,
+      ashleyPath
+    );
+    const ricResult = await synthesizeSpeech(ricSample, voices.Ric, ricPath);
+
+    if (ashleyResult === true && ricResult === true) {
+      console.log("TTS engine test successful!");
+      return res.json({
+        success: true,
+        engine: engine,
+        voices: voices,
+        ashleyAudioUrl: `/podcasts/${ashleyFile}`,
+        ricAudioUrl: `/podcasts/${ricFile}`,
+      });
+    } else {
+      console.error("TTS engine test failed:", ashleyResult, ricResult);
+      return res.status(500).json({
+        success: false,
+        error: "TTS engine test failed",
+        details: { ashleyResult, ricResult },
+      });
+    }
+  } catch (error) {
+    console.error("TTS engine test error:", error);
+    return res.status(500).json({
+      success: false,
+      error: "TTS engine test error",
+      message: error.message,
+    });
+  }
 });
 
 // Serve static files from the public directory
@@ -1475,7 +1487,6 @@ app.get(["/debug", "/api/debug"], async (req, res) => {
     // Get hostname information
     const hostname = req.hostname || "unknown";
     const fullUrl = req.protocol + "://" + req.get("host") + req.originalUrl;
-
     const results = {
       server: {
         hostname: hostname,
