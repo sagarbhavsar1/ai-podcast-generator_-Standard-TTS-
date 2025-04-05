@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node backend/app.js",
     "dev": "nodemon backend/app.js",
-    "build": "cd frontend && npm run build && cd .."
+    "build": "cd frontend && npm run build && cd ..",
+    "postinstall": "echo 'Running postinstall script' && cd frontend && npm install && CI=false npm run build && echo 'Frontend build completed' && ls -la build"
   },
   "dependencies": {
     "aws-sdk": "^2.1510.0",
