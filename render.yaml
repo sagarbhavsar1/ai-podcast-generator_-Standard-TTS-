@@ -5,6 +5,7 @@ services:
     buildCommand: |
       apt-get update && apt-get install -y tesseract-ocr libleptonica-dev poppler-utils ffmpeg
       npm install && npm run build
+      cd frontend && npm install && npm run build && cd ..
     startCommand: cd backend && node app.js
     envVars:
       - key: NODE_ENV

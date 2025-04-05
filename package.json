@@ -5,7 +5,8 @@
   "main": "backend/app.js",
   "scripts": {
     "start": "node backend/app.js",
-    "dev": "nodemon backend/app.js"
+    "dev": "nodemon backend/app.js",
+    "build": "cd frontend && npm run build && cd .."
   },
   "dependencies": {
     "aws-sdk": "^2.1510.0",
