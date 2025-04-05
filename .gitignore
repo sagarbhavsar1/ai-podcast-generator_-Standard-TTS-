@@ -1,9 +1,51 @@
-# Node.js
+# Dependencies
 node_modules/
-npm-debug.log
-yarn-error.log
-yarn-debug.log
+node_modules
+
+# Environment variables
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Temporary folders
+uploads/
+temp/
+public/podcasts/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 .pnpm-debug.log
+
+# Build files
+build/
+dist/
+*.tsbuildinfo
+
+# Editor directories and files
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 
 # Python
 __pycache__/
@@ -15,24 +57,7 @@ venv/
 env/
 ENV/
 
-# Build files
-dist/
-build/
-*.tsbuildinfo
-
 # Media files
-uploads/*
-!uploads/.gitkeep
-public/podcasts/*
-!public/podcasts/.gitkeep
 models/*.gguf
-
-# OS specific
-.DS_Store
-Thumbs.db
-
-# IDE
-.idea/
-.vscode/*
-!.vscode/extensions.json
-!.vscode/settings.json
+!uploads/.gitkeep
+!public/podcasts/.gitkeep

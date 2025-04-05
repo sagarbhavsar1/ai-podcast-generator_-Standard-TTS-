@@ -8,13 +8,21 @@
     "dev": "nodemon backend/app.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "multer": "^1.4.5-lts.1",
+    "aws-sdk": "^2.1510.0",
+    "axios": "^1.6.2",
+    "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
-    "fs-extra": "^11.1.1",
-    "axios": "^1.6.0",
-    "express-rate-limit": "^7.1.0",
     "dotenv": "^16.3.1",
-    "aws-sdk": "^2.1460.0"
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "fs-extra": "^11.2.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "node-tesseract-ocr": "^2.2.1",
+    "pdf-parse": "^1.1.1",
+    "pdf-poppler": "^0.2.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
   }
 }
