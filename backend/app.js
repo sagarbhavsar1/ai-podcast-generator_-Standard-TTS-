@@ -19,6 +19,48 @@ app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+// Serve static frontend files from the 'frontend/dist' or 'frontend/build' directory if it exists
+const frontendPath = path.join(__dirname, "../frontend/dist");
+const altFrontendPath = path.join(__dirname, "../frontend/build");
+
+if (fs.existsSync(frontendPath)) {
+  console.log("Serving frontend from:", frontendPath);
+  app.use(express.static(frontendPath));
+} else if (fs.existsSync(altFrontendPath)) {
+  console.log("Serving frontend from:", altFrontendPath);
+  app.use(express.static(altFrontendPath));
+} else {
+  // If no frontend build exists, serve a simple HTML landing page at root
+  app.get("/", (req, res) => {
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>PDFcast API Server</title>
+          <style>
+            body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; }
+            h1 { color: #333; }
+            .endpoint { background: #f4f4f4; padding: 10px; border-radius: 4px; margin-bottom: 10px; }
+            code { background: #eee; padding: 2px 4px; border-radius: 3px; }
+          </style>
+        </head>
+        <body>
+          <h1>PDFcast API Server</h1>
+          <p>Your API server is running successfully!</p>
+
+          <h2>Available Endpoints:</h2>
+          <div class="endpoint"><code>POST /api/upload</code> - Upload a PDF file</div>
+          <div class="endpoint"><code>POST /api/generate</code> - Generate a podcast from text</div>
+          <div class="endpoint"><code>GET /api/health</code> - Server health check</div>
+          <div class="endpoint"><code>GET /podcasts/:filename</code> - Stream a generated podcast</div>
+
+          <p>For the frontend UI, clone and deploy the frontend repository or use the API directly.</p>
+        </body>
+      </html>
+    `);
+  });
+}
+
 // Rate limiting
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
@@ -1222,6 +1264,24 @@ app.get("/podcasts/:filename", async (req, res) => {
     } else {
       res.end();
     }
+  }
+});
+
+// Make sure the "catch-all" route for SPA routing comes AFTER all API routes
+// This will redirect all non-API routes to the frontend index.html for client-side routing
+app.get("*", (req, res) => {
+  // Skip API routes
+  if (req.url.startsWith("/api/") || req.url.startsWith("/podcasts/")) {
+    return res.status(404).send("API endpoint not found");
+  }
+
+  // For all other routes, serve the frontend app
+  if (fs.existsSync(path.join(frontendPath, "index.html"))) {
+    res.sendFile(path.join(frontendPath, "index.html"));
+  } else if (fs.existsSync(path.join(altFrontendPath, "index.html"))) {
+    res.sendFile(path.join(altFrontendPath, "index.html"));
+  } else {
+    res.redirect("/");
   }
 });
 
