@@ -127,9 +127,15 @@ function App() {
     }
 
     try {
-      // Define API endpoint with fallback options
+      // Improved API endpoint detection with fallbacks
+      // 1. Use environment variable if available
+      // 2. Try to automatically detect the current domain
+      // 3. Fall back to localhost only as last resort
       const apiEndpoint =
-        process.env.REACT_APP_API_URL || "http://localhost:3000";
+        process.env.REACT_APP_API_URL ||
+        window.location.origin ||
+        "http://localhost:3000";
+
       const uploadUrl = `${apiEndpoint}/api/upload`;
 
       console.log(`Uploading to: ${uploadUrl}`);

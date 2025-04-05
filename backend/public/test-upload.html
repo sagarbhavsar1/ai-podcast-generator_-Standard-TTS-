@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>API Test - PDF Upload</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .test-form {
+        border: 1px solid #ddd;
+        padding: 20px;
+        border-radius: 8px;
+      }
+      .btn {
+        padding: 10px 16px;
+        background: #4caf50;
+        color: white;
+        border: none;
+        cursor: pointer;
+      }
+      #result {
+        margin-top: 20px;
+        padding: 10px;
+        border: 1px solid #eee;
+        min-height: 100px;
+      }
+      pre {
+        background: #f5f5f5;
+        padding: 10px;
+        overflow: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>PDF Upload API Test</h1>
+    <div class="test-form">
+      <h3>Upload a small PDF file</h3>
+      <input type="file" id="pdfFile" accept=".pdf" />
+      <button onclick="testUpload()" class="btn">Test Upload</button>
+    </div>
+
+    <div id="result">Results will appear here...</div>
+
+    <script>
+      async function testUpload() {
+        const fileInput = document.getElementById("pdfFile");
+        const resultDiv = document.getElementById("result");
+
+        if (!fileInput.files.length) {
+          resultDiv.innerHTML =
+            '<p style="color:red">Please select a PDF file first.</p>';
+          return;
+        }
+
+        resultDiv.innerHTML = "<p>Uploading, please wait...</p>";
+
+        try {
+          const formData = new FormData();
+          formData.append("pdf", fileInput.files[0]);
+
+          const response = await fetch("/api/upload", {
+            method: "POST",
+            body: formData,
+          });
+
+          const data = await response.json();
+
+          if (response.ok) {
+            resultDiv.innerHTML = `
+            <h3 style="color:green">Upload Successful!</h3>
+            <p><strong>Filename:</strong> ${data.filename}</p>
+            <p><strong>Text preview:</strong></p>
+            <pre>${data.text.substring(0, 300)}...</pre>
+            <p><strong>Full text length:</strong> ${
+              data.text.length
+            } characters</p>
+          `;
+          } else {
+            resultDiv.innerHTML = `<p style="color:red">Error: ${
+              data.error || "Unknown error"
+            }</p>`;
+          }
+        } catch (error) {
+          resultDiv.innerHTML = `<p style="color:red">Network error: ${error.message}</p>`;
+          console.error("Test upload error:", error);
+        }
+      }
+    </script>
+  </body>
+</html>
