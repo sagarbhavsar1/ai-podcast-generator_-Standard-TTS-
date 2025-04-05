@@ -2,7 +2,9 @@ services:
   - type: web
     name: ai-podcast-generator
     env: node
-    buildCommand: npm install && npm run build
+    buildCommand: |
+      apt-get update && apt-get install -y tesseract-ocr libleptonica-dev poppler-utils ffmpeg
+      npm install && npm run build
     startCommand: cd backend && node app.js
     envVars:
       - key: NODE_ENV
