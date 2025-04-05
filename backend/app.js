@@ -1344,46 +1344,59 @@ app.get("/podcasts/:filename", async (req, res) => {
   }
 });
 
-// Add a debug endpoint to help diagnose issues
-app.get("/api/debug", async (req, res) => {
+// Make the debug endpoint more accessible at both / and /api routes
+app.get(["/debug", "/api/debug"], async (req, res) => {
   try {
+    // Get hostname information
+    const hostname = req.hostname || "unknown";
+    const fullUrl = req.protocol + "://" + req.get("host") + req.originalUrl;
+
     const results = {
+      server: {
+        hostname: hostname,
+        requestUrl: fullUrl,
+        timestamp: new Date().toISOString(),
+      },
       environment: {
         node_env: process.env.NODE_ENV,
         port: PORT,
+        renderService: process.env.RENDER || "Not running on Render",
       },
       directories: {
         uploads: {
           path: config.UPLOADS_DIR,
+          exists: await fs.pathExists(config.UPLOADS_DIR),
           ...(await debugHelper.checkDirectoryPermissions(config.UPLOADS_DIR)),
         },
         temp: {
           path: config.TEMP_DIR,
+          exists: await fs.pathExists(config.TEMP_DIR),
           ...(await debugHelper.checkDirectoryPermissions(config.TEMP_DIR)),
         },
         output: {
           path: config.OUTPUT_DIR,
+          exists: await fs.pathExists(config.OUTPUT_DIR),
           ...(await debugHelper.checkDirectoryPermissions(config.OUTPUT_DIR)),
         },
-      },
-      diskSpace: {
-        // We'll get disk space info for the mounted directory
-        mountPoint: "/data",
       },
     };
 
     // Try to get disk space information if available
     try {
       const { execSync } = require("child_process");
-      const diskData = execSync("df -h /data").toString();
-      results.diskSpace.info = diskData;
+      const diskData = execSync("df -h").toString();
+      results.diskSpace = {
+        info: diskData,
+      };
     } catch (err) {
-      results.diskSpace.error = err.message;
+      results.diskSpace = {
+        error: err.message,
+      };
     }
 
     res.json(results);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error.message, stack: error.stack });
   }
 });
 
