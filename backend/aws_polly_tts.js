@@ -27,7 +27,7 @@ const VOICE_MAPPINGS = {
   },
   generative: {
     Ashley: "Danielle", // Female voice for Ashley (main host)
-    Ric: "Matthew", // Male voice for Ric
+    Ric: "Stephen", // Male voice for Ric
   },
 };
 
