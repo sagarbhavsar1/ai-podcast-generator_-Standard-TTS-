@@ -127,16 +127,8 @@ function App() {
     }
 
     try {
-      // Improved API endpoint detection with fallbacks
-      // 1. Use environment variable if available
-      // 2. Try to automatically detect the current domain
-      // 3. Fall back to localhost only as last resort
-      const apiEndpoint =
-        process.env.REACT_APP_API_URL ||
-        window.location.origin ||
-        "http://localhost:3000";
-
-      const uploadUrl = `${apiEndpoint}/api/upload`;
+      // Use relative URL instead of trying to detect the API endpoint
+      const uploadUrl = "/api/upload";
 
       console.log(`Uploading to: ${uploadUrl}`);
 
@@ -187,10 +179,8 @@ function App() {
       setIsGenerating(true);
       setGenerationProgress(0);
 
-      // Define API endpoint with fallback options
-      const apiEndpoint =
-        process.env.REACT_APP_API_URL || "http://localhost:3000";
-      const generateUrl = `${apiEndpoint}/api/generate`;
+      // Use relative URL instead of trying to detect the API endpoint
+      const generateUrl = "/api/generate";
 
       console.log(`Generating podcast at: ${generateUrl}`);
 
@@ -475,13 +465,7 @@ function App() {
                       </button>
                       <audio
                         ref={audioRef}
-                        src={
-                          podcastData?.audioUrl
-                            ? podcastData.audioUrl.startsWith("http")
-                              ? podcastData.audioUrl
-                              : `http://localhost:3000${podcastData.audioUrl}`
-                            : ""
-                        }
+                        src={podcastData?.audioUrl || ""}
                         onEnded={handleAudioEnded}
                         controls
                       />
@@ -490,13 +474,7 @@ function App() {
 
                   <div className="download-section">
                     <a
-                      href={
-                        podcastData?.audioUrl
-                          ? podcastData.audioUrl.startsWith("http")
-                            ? podcastData.audioUrl
-                            : `http://localhost:3000${podcastData.audioUrl}`
-                          : "#"
-                      }
+                      href={podcastData?.audioUrl || "#"}
                       download
                       className="download-btn"
                     >
