@@ -9,6 +9,7 @@ const { extractTextFromPdf } = require("./tessaractOCR");
 const { synthesizeSpeech } = require("./aws_polly_tts");
 const { analyzeScript } = require("./scriptEnhancer");
 const config = require("./config");
+const debugHelper = require("./debug-helper");
 require("dotenv").config();
 
 const app = express();
@@ -679,37 +680,113 @@ function cleanScriptMetadata(script) {
   return script;
 }
 
-// Fix the upload route
-app.post("/api/upload", upload.single("pdf"), async (req, res) => {
+// Add detailed environment logging at startup
+console.log("Environment configuration:");
+console.log(`- PORT: ${PORT}`);
+console.log(`- NODE_ENV: ${process.env.NODE_ENV}`);
+console.log(`- UPLOADS_DIR: ${config.UPLOADS_DIR}`);
+console.log(`- TEMP_DIR: ${config.TEMP_DIR}`);
+console.log(`- OUTPUT_DIR: ${config.OUTPUT_DIR}`);
+
+// Improved directory setup with error handling
+(async () => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: "No PDF file uploaded" });
+    // Check each directory with detailed permissions info
+    const uploadsDirCheck = await debugHelper.checkDirectoryPermissions(
+      config.UPLOADS_DIR
+    );
+    const tempDirCheck = await debugHelper.checkDirectoryPermissions(
+      config.TEMP_DIR
+    );
+    const outputDirCheck = await debugHelper.checkDirectoryPermissions(
+      config.OUTPUT_DIR
+    );
+
+    console.log("Directory permissions check:");
+    console.log(
+      `- UPLOADS_DIR: ${
+        uploadsDirCheck.success ? "OK" : "FAILED - " + uploadsDirCheck.error
+      }`
+    );
+    console.log(
+      `- TEMP_DIR: ${
+        tempDirCheck.success ? "OK" : "FAILED - " + tempDirCheck.error
+      }`
+    );
+    console.log(
+      `- OUTPUT_DIR: ${
+        outputDirCheck.success ? "OK" : "FAILED - " + outputDirCheck.error
+      }`
+    );
+
+    if (
+      !uploadsDirCheck.success ||
+      !tempDirCheck.success ||
+      !outputDirCheck.success
+    ) {
+      console.error("⚠️ WARNING: Directory permission issues detected!");
+    } else {
+      console.log("✅ All directory permissions verified successfully");
     }
-
-    console.log(
-      `Processing PDF: ${req.file.originalname} (${req.file.size} bytes)`
-    );
-
-    // Extract text from PDF using OCR
-    const text = await extractTextFromPdf(req.file.path);
-
-    // Log the extracted text (first 500 chars)
-    console.log("Extracted text (preview):", text.substring(0, 500));
-    console.log("Total text length:", text.length);
-    console.log(
-      "Extraction method:",
-      text.length > 100 ? "Direct PDF extraction" : "OCR fallback"
-    );
-
-    // Return the extracted text
-    res.json({
-      text: text,
-      filename: req.file.filename,
-    });
-  } catch (error) {
-    console.error("Error processing PDF:", error);
-    res.status(500).json({ error: "Failed to process PDF" });
+  } catch (err) {
+    console.error("Failed to initialize storage directories:", err);
   }
+})();
+
+// Fix the upload route
+app.post("/api/upload", (req, res) => {
+  console.log("Upload request received");
+
+  // Use single handler function for better error tracking
+  upload.single("pdf")(req, res, async (err) => {
+    try {
+      if (err) {
+        console.error("Multer upload error:", err);
+        return res.status(400).json({ error: err.message });
+      }
+
+      if (!req.file) {
+        console.error("No file uploaded");
+        return res.status(400).json({ error: "No PDF file uploaded" });
+      }
+
+      console.log(
+        `Processing PDF: ${req.file.originalname} (${req.file.size} bytes) at ${req.file.path}`
+      );
+
+      // Verify file existence
+      try {
+        await fs.access(req.file.path, fs.constants.R_OK);
+        console.log("File is readable");
+      } catch (accessErr) {
+        console.error(`Cannot access uploaded file: ${accessErr.message}`);
+        return res
+          .status(500)
+          .json({ error: `File access error: ${accessErr.message}` });
+      }
+
+      // Extract text from PDF
+      try {
+        const text = await extractTextFromPdf(req.file.path);
+        console.log("Text extraction successful");
+        console.log("Extracted text (preview):", text.substring(0, 500));
+        console.log("Total text length:", text.length);
+
+        return res.json({
+          text: text,
+          filename: req.file.filename,
+        });
+      } catch (extractErr) {
+        console.error("Text extraction error:", extractErr);
+        return res
+          .status(500)
+          .json({ error: `PDF extraction error: ${extractErr.message}` });
+      }
+    } catch (error) {
+      console.error("General error in upload handler:", error);
+      return res.status(500).json({ error: `Server error: ${error.message}` });
+    }
+  });
 });
 
 // Podcast generation endpoint
@@ -1264,6 +1341,49 @@ app.get("/podcasts/:filename", async (req, res) => {
     } else {
       res.end();
     }
+  }
+});
+
+// Add a debug endpoint to help diagnose issues
+app.get("/api/debug", async (req, res) => {
+  try {
+    const results = {
+      environment: {
+        node_env: process.env.NODE_ENV,
+        port: PORT,
+      },
+      directories: {
+        uploads: {
+          path: config.UPLOADS_DIR,
+          ...(await debugHelper.checkDirectoryPermissions(config.UPLOADS_DIR)),
+        },
+        temp: {
+          path: config.TEMP_DIR,
+          ...(await debugHelper.checkDirectoryPermissions(config.TEMP_DIR)),
+        },
+        output: {
+          path: config.OUTPUT_DIR,
+          ...(await debugHelper.checkDirectoryPermissions(config.OUTPUT_DIR)),
+        },
+      },
+      diskSpace: {
+        // We'll get disk space info for the mounted directory
+        mountPoint: "/data",
+      },
+    };
+
+    // Try to get disk space information if available
+    try {
+      const { execSync } = require("child_process");
+      const diskData = execSync("df -h /data").toString();
+      results.diskSpace.info = diskData;
+    } catch (err) {
+      results.diskSpace.error = err.message;
+    }
+
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
