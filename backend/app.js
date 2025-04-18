@@ -88,6 +88,13 @@ const MIN_REQUEST_INTERVAL = 1500; // Increased from 1000ms to 1500ms
 const OPTIMAL_CHUNK_SIZE = 10000; // Increased from 6000 to 10000
 const MAX_CHUNK_COUNT = 12; // New constant to limit total chunks
 
+// UPDATED: Safe max chunk size for Groq API (6000 tokens × 3.5 chars-per-token × 0.9 margin)
+const GROQ_MAX_TOKENS = 6000;
+const GROQ_SAFE_CHARS_PER_TOKEN = 3.5; // Conservative estimate
+const GROQ_MAX_CHUNK_CHARS = Math.floor(
+  GROQ_MAX_TOKENS * GROQ_SAFE_CHARS_PER_TOKEN * 0.9
+); // 90% margin
+
 // Words per minute for speech calculation - adjusted for Kokoro TTS's actual speed
 const WORDS_PER_MINUTE = 214; // Adjusted based on production data
 
@@ -255,7 +262,15 @@ function splitTextIntoChunks(text) {
   );
 
   // Calculate target chunk size - larger than before to reduce chunks
-  const targetChunkSize = Math.ceil(text.length / targetChunks);
+  let targetChunkSize = Math.ceil(text.length / targetChunks);
+
+  // Enforce Groq API max chunk size
+  if (targetChunkSize > GROQ_MAX_CHUNK_CHARS) {
+    console.warn(
+      `Target chunk size (${targetChunkSize}) exceeds Groq API safe limit (${GROQ_MAX_CHUNK_CHARS}). Reducing.`
+    );
+    targetChunkSize = GROQ_MAX_CHUNK_CHARS;
+  }
 
   const chunks = [];
   let startIndex = 0;
@@ -308,10 +323,17 @@ function splitTextIntoChunks(text) {
     }
 
     // Add the chunk to our array
-    chunks.push(text.substring(startIndex, endIndex));
-
-    // Move to the next chunk
-    startIndex = endIndex;
+    const chunk = text.substring(startIndex, endIndex);
+    if (chunk.length > GROQ_MAX_CHUNK_CHARS) {
+      console.warn(
+        `Chunk length (${chunk.length}) exceeds Groq API safe limit (${GROQ_MAX_CHUNK_CHARS}). Truncating.`
+      );
+      chunks.push(chunk.substring(0, GROQ_MAX_CHUNK_CHARS));
+      startIndex += GROQ_MAX_CHUNK_CHARS;
+    } else {
+      chunks.push(chunk);
+      startIndex = endIndex;
+    }
 
     // Safety check - if we've hit MAX_CHUNK_COUNT and there's still text, combine the rest
     if (chunks.length === MAX_CHUNK_COUNT - 1 && startIndex < text.length) {
@@ -387,6 +409,16 @@ async function processChunkWithGroq(
   totalChunks,
   targetWordCount
 ) {
+  // NEW: Prevent sending oversized chunks to Groq API
+  if (chunk.length > GROQ_MAX_CHUNK_CHARS) {
+    console.error(
+      `Refusing to send chunk ${chunkNumber} (length ${chunk.length}) to Groq API: exceeds safe limit (${GROQ_MAX_CHUNK_CHARS} chars)`
+    );
+    throw new Error(
+      `Chunk ${chunkNumber} too large for Groq API (length: ${chunk.length} chars)`
+    );
+  }
+
   // Calculate per-chunk word count
   const totalTargetWords = targetWordCount;
 
