@@ -869,8 +869,10 @@ app.post("/api/generate", apiLimiter, async (req, res) => {
       `Target word count: ${targetWordCount} words (at ${WORDS_PER_MINUTE} words/minute)`
     );
 
-    // Try to process the entire PDF in one go
     let completeScript = "";
+    let usedChunking = false;
+
+    // Try to process the entire PDF in one go
     try {
       console.log("Attempting to process entire PDF in one API call...");
       console.log(
@@ -1039,9 +1041,45 @@ PDF Content: ${text}`;
         } else {
           console.error("Error setting up request:", groqError.message);
         }
-        // Try fallback model if available
-        console.error("Attempting fallback to alternate model...");
-        throw groqError;
+
+        // Check for 413 or "request too large" error
+        const isTooLarge =
+          (groqError.response && groqError.response.status === 413) ||
+          (groqError.response &&
+            groqError.response.data &&
+            typeof groqError.response.data.error?.message === "string" &&
+            groqError.response.data.error.message.includes(
+              "Request too large"
+            ));
+
+        if (isTooLarge) {
+          console.warn(
+            "Single API call failed due to request size. Falling back to chunking logic."
+          );
+          // Use chunking logic
+          usedChunking = true;
+          const chunks = splitTextIntoChunks(text);
+          console.log(`Processing ${chunks.length} chunks with Groq API...`);
+          let scripts = [];
+          for (let i = 0; i < chunks.length; i++) {
+            const chunk = chunks[i];
+            const isFirst = i === 0;
+            const isLast = i === chunks.length - 1;
+            const chunkScript = await processChunkWithGroq(
+              chunk,
+              isFirst,
+              isLast,
+              i + 1,
+              chunks.length,
+              targetWordCount
+            );
+            scripts.push(chunkScript);
+          }
+          completeScript = scripts.join("\n\n");
+        } else {
+          // Not a size error, rethrow
+          throw groqError;
+        }
       }
     } catch (error) {
       console.error("Error processing PDF:", error.message);

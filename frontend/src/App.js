@@ -31,7 +31,15 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef(null);
   const fileInputRef = useRef(null);
-  const uploadSectionRef = useRef(null); // Add ref for upload section
+  const uploadSectionRef = useRef(null);
+
+  // Milestone progress values
+  const PROGRESS_MILESTONES = [0, 25, 50, 75, 95, 100];
+
+  // Helper to set progress to a milestone
+  const setProgressMilestone = (milestoneIdx) => {
+    setGenerationProgress(PROGRESS_MILESTONES[milestoneIdx]);
+  };
 
   // Handle file selection through the file input
   const handleFileChange = (e) => {
@@ -127,11 +135,7 @@ function App() {
     }
 
     try {
-      // Use relative URL instead of trying to detect the API endpoint
       const uploadUrl = "/api/upload";
-
-      console.log(`Uploading to: ${uploadUrl}`);
-
       setError(null);
       setIsProcessing(true);
       setIsUploading(true);
@@ -139,6 +143,9 @@ function App() {
 
       const formData = new FormData();
       formData.append("pdf", file);
+
+      // 0%: Upload started
+      setProgressMilestone(0);
 
       const response = await axios.post(uploadUrl, formData, {
         headers: {
@@ -150,58 +157,62 @@ function App() {
           );
           setUploadProgress(percentCompleted);
         },
-        timeout: 30000, // 30 second timeout
+        timeout: 30000,
       });
 
       setIsUploading(false);
       setUploadProgress(100);
+
+      // 25%: Upload & extraction done
+      setProgressMilestone(1);
 
       // Start podcast generation
       await generatePodcast(response.data.text, response.data.filename);
     } catch (err) {
       setIsProcessing(false);
       setIsUploading(false);
-
-      // Better error messaging
       const errorMessage = err.response
         ? `Error: ${err.response.status} - ${
             err.response.statusText || "Server error"
           }`
         : err.message || "Network error - please check server connection";
-
       setError(`Failed to upload PDF: ${errorMessage}`);
       console.error("Upload error:", err);
     }
   };
 
+  // Podcast generation with milestone progress
   const generatePodcast = async (text, filename) => {
     try {
       setIsGenerating(true);
-      setGenerationProgress(0);
+      setGenerationProgress(25); // Already at 25% after upload/extract
 
-      // Use relative URL instead of trying to detect the API endpoint
       const generateUrl = "/api/generate";
-
       console.log(`Generating podcast at: ${generateUrl}`);
 
-      // Simulate progress updates
-      const progressInterval = setInterval(() => {
-        setGenerationProgress((prev) => {
-          if (prev >= 95) {
-            clearInterval(progressInterval);
-            return 95;
-          }
-          return prev + 5;
-        });
-      }, 3000);
+      // 50%: Script generation started
+      setProgressMilestone(2);
 
-      const response = await axios.post(generateUrl, {
+      // Simulate backend milestones with realistic jumps
+      // 50%: LLM script generation started
+      // 75%: LLM script done, TTS/audio generation started
+      // 95%: Audio combining/post-processing
+      // 100%: Podcast ready
+
+      // Start backend request
+      const backendPromise = axios.post(generateUrl, {
         text,
         filename,
       });
 
-      clearInterval(progressInterval);
-      setGenerationProgress(100);
+      // Simulate progress milestones as backend likely does not stream progress
+      setTimeout(() => setProgressMilestone(3), 8000); // 75% after ~8s (LLM done, TTS starts)
+      setTimeout(() => setProgressMilestone(4), 18000); // 95% after ~18s (audio combining)
+      // 100% will be set after backend returns
+
+      const response = await backendPromise;
+
+      setProgressMilestone(5); // 100%
       setIsGenerating(false);
       setPodcastData(response.data);
       setPodcastGenerated(true);
