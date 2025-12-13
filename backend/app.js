@@ -530,7 +530,7 @@ PDF Content (Middle Section): ${chunk}`;
       const response = await axios.post(
         "https://api.groq.com/openai/v1/chat/completions",
         {
-          model: "llama-3.1-8b-instant",
+          model: "llama-3.3-70b-versatile",
           messages: [
             {
               role: "system",
@@ -921,9 +921,9 @@ EXTREMELY IMPORTANT:
 
 PDF Content: ${text}`;
 
-      // Call Groq API with llama-3.1-8b-instant model
+      // Call Groq API with llama-3.3-70b-versatile
       console.log(
-        "Preparing Groq API call with model: llama-3.1-8b-instant"
+        "Preparing Groq API call with model: llama-3.3-70b-versatile"
       );
       console.log("API URL: https://api.groq.com/openai/v1/chat/completions");
       try {
@@ -932,7 +932,7 @@ PDF Content: ${text}`;
         const response = await axios.post(
           "https://api.groq.com/openai/v1/chat/completions",
           {
-            model: "llama-3.1-8b-instant",
+            model: "llama-3.3-70b-versatile",
             messages: [
               {
                 role: "system",
